@@ -336,3 +336,14 @@ cond_broadcast (struct condition *cond, struct lock *lock)
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
 }
+
+int
+get_lock_priority (const struct lock * lock)
+{
+  ASSERT (lock != NULL);
+
+  struct list_elem * e = list_max (&lock->semaphore.waiters, compare_priority_func, NULL);
+  struct thread * max_priority_thread = list_entry(e, struct thread, elem);
+
+  return thread_get_effective_priority(max_priority_thread);
+}
