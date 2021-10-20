@@ -1,3 +1,4 @@
+#include <math.h>
 #include "threads/thread.h"
 #include <debug.h>
 #include <stddef.h>
@@ -597,3 +598,10 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+int thread_get_effective_priority(struct thread * t)
+{
+    struct lock * max_priority_lock = list_entry (list_max(t->list_of_locks, compare_lock_priority, NULL),
+            struct lock, elem);
+    return max(t->priority, get_lock_priority(max_priority_lock));
+}
