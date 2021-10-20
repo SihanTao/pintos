@@ -32,6 +32,16 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+static int
+cmp_thread_effective_priority_func(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+{
+  struct thread * thread1 = list_entry(a, struct thread, elem);
+  struct thread * thread2 = list_entry(b, struct thread, elem);
+  
+  return thread_get_effective_priority(thread1) > thread_get_effective_priority(thread2);
+}
+
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -114,7 +124,8 @@ sema_up (struct semaphore *sema)
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
+    thread_unblock (list_entry (
+      list_max (&sema->waiters, cmp_thread_effective_priority_func, NULL),
                                 struct thread, elem));
   sema->value++;
   intr_set_level (old_level);
@@ -198,6 +209,7 @@ lock_acquire (struct lock *lock)
 
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  list_push_back(&lock->holder->list_of_locks, &lock->elem);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -231,8 +243,18 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  int old_effective_priority = thread_get_effective_priority(lock->holder);
+
+  list_remove (&lock->elem);
+
+  int new_effective_priority = thread_get_effective_priority(lock->holder);
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+
+  if (old_effective_priority > new_effective_priority)
+  {
+    thread_yield ();
+  }
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -335,15 +357,6 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
-}
-
-static int
-cmp_thread_effective_priority_func(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
-{
-  struct thread * thread1 = list_entry(a, struct thread, elem);
-  struct thread * thread2 = list_entry(b, struct thread, elem);
-  
-  return thread_get_effective_priority(thread1) > thread_get_effective_priority(thread2);
 }
 
 int
