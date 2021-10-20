@@ -599,9 +599,17 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
+static int cmp_lock_priority (struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+{
+  struct lock * lock1 = list_entry(a, struct lock, elem);
+  struct lock * lock2 = list_entry(b, struct lock, elem);
+  
+  return get_lock_priority(lock1) > get_lock_priority(lock2);
+}
+
 int thread_get_effective_priority(struct thread * t)
 {
-    struct lock * max_priority_lock = list_entry (list_max(t->list_of_locks, cmp_lock_priority, NULL),
+    struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, cmp_lock_priority, NULL),
             struct lock, elem);
     return max(t->priority, get_lock_priority(max_priority_lock));
 }

@@ -337,6 +337,15 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
+static int
+cmp_thread_effective_priority_func(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+{
+  struct thread * thread1 = list_entry(a, struct thread, elem);
+  struct thread * thread2 = list_entry(b, struct thread, elem);
+  
+  return thread_get_effective_priority(thread1) > thread_get_effective_priority(thread2);
+}
+
 int
 get_lock_priority (const struct lock * lock)
 {
