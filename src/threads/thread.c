@@ -253,7 +253,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, cmp_thread_effective_priority_func, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -324,7 +324,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, cmp_thread_effective_priority_func, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -612,4 +612,13 @@ int thread_get_effective_priority(struct thread * t)
     struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, cmp_lock_priority, NULL),
             struct lock, elem);
     return max(t->priority, get_lock_priority(max_priority_lock));
+}
+
+
+int cmp_thread_effective_priority_func(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+{
+  struct thread * thread1 = list_entry(a, struct thread, elem);
+  struct thread * thread2 = list_entry(b, struct thread, elem);
+  
+  return thread_get_effective_priority(thread1) > thread_get_effective_priority(thread2);
 }
