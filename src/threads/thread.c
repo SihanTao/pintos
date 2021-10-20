@@ -601,7 +601,7 @@ uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
 int thread_get_effective_priority(struct thread * t)
 {
-    struct lock * max_priority_lock = list_entry (list_max(t->list_of_locks, compare_lock_priority, NULL),
+    struct lock * max_priority_lock = list_entry (list_max(t->list_of_locks, cmp_lock_priority, NULL),
             struct lock, elem);
     return max(t->priority, get_lock_priority(max_priority_lock));
 }
