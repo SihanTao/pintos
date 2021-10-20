@@ -1,4 +1,3 @@
-#include <math.h>
 #include "threads/thread.h"
 #include <debug.h>
 #include <stddef.h>
@@ -509,7 +508,7 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+    return list_entry (list_max (&ready_list, cmp_thread_effective_priority_func, NULL), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -599,7 +598,7 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
-static int cmp_lock_priority (struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+static bool cmp_lock_priority (const struct list_elem * a, const struct list_elem * b, void * aux UNUSED)
 {
   struct lock * lock1 = list_entry(a, struct lock, elem);
   struct lock * lock2 = list_entry(b, struct lock, elem);
@@ -611,11 +610,12 @@ int thread_get_effective_priority(struct thread * t)
 {
     struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, cmp_lock_priority, NULL),
             struct lock, elem);
-    return max(t->priority, get_lock_priority(max_priority_lock));
+    int lock_priority = get_lock_priority(max_priority_lock);
+    return t->priority > lock_priority ? t->priority : lock_priority;
 }
 
 
-int cmp_thread_effective_priority_func(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+bool cmp_thread_effective_priority_func(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED)
 {
   struct thread * thread1 = list_entry(a, struct thread, elem);
   struct thread * thread2 = list_entry(b, struct thread, elem);

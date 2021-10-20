@@ -352,7 +352,7 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 }
 
 int
-get_lock_priority (const struct lock * lock)
+get_lock_priority (struct lock * lock)
 {
   ASSERT (lock != NULL);
 
