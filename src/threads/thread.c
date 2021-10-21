@@ -609,10 +609,12 @@ static bool cmp_lock_priority (const struct list_elem * a, const struct list_ele
 
 int thread_get_effective_priority(struct thread * t)
 {
-    struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, cmp_lock_priority, NULL),
-            struct lock, elem);
-    int lock_priority = get_lock_priority(max_priority_lock);
-    return t->priority > lock_priority ? t->priority : lock_priority;
+  if (list_empty(&t->list_of_locks))
+    return t->priority;
+  struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, cmp_lock_priority, NULL),
+          struct lock, elem);
+  int lock_priority = get_lock_priority(max_priority_lock);
+  return t->priority > lock_priority ? t->priority : lock_priority;
 }
 
 

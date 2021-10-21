@@ -355,7 +355,8 @@ int
 get_lock_priority (struct lock * lock)
 {
   ASSERT (lock != NULL);
-
+  if (list_empty(&lock->semaphore.waiters))
+    return 0;
   struct list_elem * e = list_max (&lock->semaphore.waiters, cmp_thread_effective_priority_func, NULL);
   struct thread * max_priority_thread = list_entry(e, struct thread, elem);
 
