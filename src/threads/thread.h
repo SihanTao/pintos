@@ -134,13 +134,12 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-int thread_get_effective_priority(struct thread * t);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-bool cmp_thread_effective_priority_func(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED);
-
+int thread_get_effective_priority (struct thread * t);
+bool less_thread_effective_priority (const struct list_elem * a, const struct list_elem * b, void * aux UNUSED);
 #endif /* threads/thread.h */

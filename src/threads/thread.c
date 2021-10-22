@@ -252,7 +252,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, cmp_thread_effective_priority_func, NULL);
+  list_insert_ordered (&ready_list, &t->elem, less_thread_effective_priority, NULL);
   t->status = THREAD_READY;
 
   struct thread * cur = thread_current();
@@ -333,7 +333,9 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem, cmp_thread_effective_priority_func, NULL);
+  {
+    list_insert_ordered (&ready_list, &cur->elem, less_thread_effective_priority, NULL);
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -360,14 +362,19 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread * cur = thread_current();
+  int old_priority = cur->priority;
+  cur->priority = new_priority;
+  if (old_priority > new_priority){
+    thread_yield();
+  }
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  return thread_get_effective_priority(thread_current());
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -627,11 +634,14 @@ int thread_get_effective_priority(struct thread * t)
   return t->priority > lock_priority ? t->priority : lock_priority;
 }
 
-
-bool cmp_thread_effective_priority_func(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED)
+bool
+less_thread_effective_priority (const struct list_elem * a, const struct list_elem * b, void * aux UNUSED)
 {
-  struct thread * thread1 = list_entry(a, struct thread, elem);
-  struct thread * thread2 = list_entry(b, struct thread, elem);
-  
-  return thread_get_effective_priority(thread1) < thread_get_effective_priority(thread2);
+  struct thread * t1 = list_entry (a, struct thread, elem);
+  struct thread * t2 = list_entry (b, struct thread, elem);
+
+  int priority1 = thread_get_effective_priority (t1);
+  int priority2 = thread_get_effective_priority (t2);
+
+  return priority1 < priority2;
 }
