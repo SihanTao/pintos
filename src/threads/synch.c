@@ -240,17 +240,12 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  int old_effective_priority = thread_get_effective_priority(lock->holder);
+
   list_remove (&lock->elem);
-  int new_effective_priority = thread_get_effective_priority(lock->holder);
+
    
   lock->holder = NULL;
   sema_up (&lock->semaphore);
-
-  if (old_effective_priority > new_effective_priority)
-  {
-    thread_yield();
-  }
 
 }
 
