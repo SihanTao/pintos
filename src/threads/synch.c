@@ -203,7 +203,7 @@ lock_acquire (struct lock *lock)
 
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
-  // list_push_back(&lock->holder->list_of_locks, &lock->elem);
+  list_push_back(&lock->holder->list_of_locks, &lock->elem);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -237,10 +237,15 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  // int old_effective_priority = thread_get_effective_priority(lock->holder);
-  // list_remove (&lock->elem);
-  // int new_effective_priority = thread_get_effective_priority(lock->holder);
+  int old_effective_priority = thread_get_effective_priority(lock->holder);
+  list_remove (&lock->elem);
+  int new_effective_priority = thread_get_effective_priority(lock->holder);
    
+  if (old_effective_priority > new_effective_priority)
+  {
+    thread_yield();
+  }
+  
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
