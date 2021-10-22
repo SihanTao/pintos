@@ -254,6 +254,16 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered (&ready_list, &t->elem, cmp_thread_effective_priority_func, NULL);
   t->status = THREAD_READY;
+
+  struct thread * cur = thread_current();
+  if (
+      (thread_get_effective_priority (t) > thread_get_effective_priority (cur)) 
+      && cur != idle_thread
+      )
+  {
+    thread_yield();
+  }
+
   intr_set_level (old_level);
 }
 
@@ -509,7 +519,7 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_max (&ready_list, cmp_thread_effective_priority_func, NULL), struct thread, elem);
+    return list_entry(list_pop_back (&ready_list), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -623,5 +633,5 @@ bool cmp_thread_effective_priority_func(const struct list_elem * a, const struct
   struct thread * thread1 = list_entry(a, struct thread, elem);
   struct thread * thread2 = list_entry(b, struct thread, elem);
   
-  return thread_get_effective_priority(thread1) > thread_get_effective_priority(thread2);
+  return thread_get_effective_priority(thread1) < thread_get_effective_priority(thread2);
 }
