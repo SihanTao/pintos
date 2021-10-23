@@ -643,5 +643,5 @@ less_thread_effective_priority (const struct list_elem * a, const struct list_el
   int priority1 = thread_get_effective_priority (t1);
   int priority2 = thread_get_effective_priority (t2);
 
-  return priority1 < priority2;
+  return priority1 <= priority2;
 }
