@@ -76,8 +76,9 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static fixed_point_t load_avg;
-static int count_down_update_load_avg;
+static int one_sec_count_down;
 static void update_load_avg(void);
+static void update_recent_cpu_allthread(void);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -96,7 +97,7 @@ void
 thread_init (void) 
 {
   ASSERT (intr_get_level () == INTR_OFF);
-  count_down_update_load_avg = TIMER_FREQ;
+  one_sec_count_down = TIMER_FREQ;
   load_avg = 0;
 
   lock_init (&tid_lock);
@@ -140,14 +141,20 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
-  if (count_down_update_load_avg == 1) // there are $TIMER_FREQ whole numbers in [1, $TIMER_FREQ]
+  if (one_sec_count_down == 1) // there are $TIMER_FREQ whole numbers in [1, $TIMER_FREQ]
   {
-    count_down_update_load_avg = TIMER_FREQ;
+    one_sec_count_down = TIMER_FREQ;
     update_load_avg();
+    update_recent_cpu_allthread();
   }
   else
   {
-    --count_down_update_load_avg;
+    --one_sec_count_down;
+  }
+
+  if (t != idle_thread)
+  {
+    t->recent_cpu++;
   }
 
   /* Update statistics. */
@@ -677,5 +684,28 @@ update_load_avg(void)
   load_avg = fp_add (
     fp_mul (LOAD_AVG_DECAY_FP, load_avg),
     fp_int_mul (ONE_MINUS_LOAD_AVG_DECAY_FP, n_ready_running_threads)
-  )
+  );
+}
+
+void 
+update_recent_cpu(struct thread * t, void* aux UNUSED)
+{
+  fixed_point_t load_avg_times_2 = fp_int_mul(load_avg, 2);
+  fixed_point_t coefficient = fp_div (
+    load_avg_times_2,
+    fp_int_add (load_avg_times_2, 1)
+  );
+
+  t->recent_cpu = fp_int_add (
+    fp_mul (coefficient, t->recent_cpu), 
+    t->nice
+  );
+}
+
+
+void
+update_recent_cpu_allthread(void)
+{
+  thread_foreach(update_recent_cpu, NULL);
+
 }
