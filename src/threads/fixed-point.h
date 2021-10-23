@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+typedef fixed_point_t int32_t
+
 #define q 14
 #define f (1 << q)
 
