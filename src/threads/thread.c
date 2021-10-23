@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <random.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
@@ -11,6 +12,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed-point.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -70,6 +72,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static fixed_point_t load_avg;
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -395,8 +398,8 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return to_intn ( fp_int_mul (load_avg, 100));
+  // TODO : improve this
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */

@@ -1,6 +1,8 @@
 #ifndef _THREAD_FIXED_POINT_H
 #define _THREAD_FIXED_POINT_H
 
+#include <stdint.h>
+
 #define q 14
 #define f (1 << q)
 
