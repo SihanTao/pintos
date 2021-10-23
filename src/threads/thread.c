@@ -252,7 +252,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, less_thread_effective_priority, NULL);
+  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
 
   struct thread * cur = thread_current();
@@ -523,10 +523,13 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
+  if (list_empty (&ready_list)) {
     return idle_thread;
-  else
-    return list_entry(list_pop_back (&ready_list), struct thread, elem);
+  } else {
+    struct list_elem *e = list_max (&ready_list, less_thread_effective_priority, NULL);
+    list_remove (e);
+    return list_entry(e, struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -643,5 +646,5 @@ less_thread_effective_priority (const struct list_elem * a, const struct list_el
   int priority1 = thread_get_effective_priority (t1);
   int priority2 = thread_get_effective_priority (t2);
 
-  return priority1 <= priority2;
+  return priority1 < priority2;
 }
