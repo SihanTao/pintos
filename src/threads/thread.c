@@ -12,6 +12,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #include "threads/fixed-point.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -21,6 +22,8 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
+#define LOAD_AVG_DECAY_FP 16111
+#define ONE_MINUS_LOAD_AVG_DECAY_FP 273
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -73,6 +76,8 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static fixed_point_t load_avg;
+static int count_down_update_load_avg;
+static void update_load_avg(void);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -91,6 +96,8 @@ void
 thread_init (void) 
 {
   ASSERT (intr_get_level () == INTR_OFF);
+  count_down_update_load_avg = TIMER_FREQ;
+  load_avg = 0;
 
   lock_init (&tid_lock);
   list_init (&ready_list);
@@ -133,6 +140,15 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
+  if (count_down_update_load_avg == 1) // there are $TIMER_FREQ whole numbers in [1, $TIMER_FREQ]
+  {
+    count_down_update_load_avg = TIMER_FREQ;
+    update_load_avg();
+  }
+  else
+  {
+    --count_down_update_load_avg;
+  }
 
   /* Update statistics. */
   if (t == idle_thread)
@@ -648,4 +664,18 @@ less_thread_effective_priority (const struct list_elem * a, const struct list_el
   int priority2 = thread_get_effective_priority (t2);
 
   return priority1 < priority2;
+}
+
+// pre : in intr_disable context
+void
+update_load_avg(void)
+{
+  ASSERT ( timer_ticks () % TIMER_FREQ == 0);
+  int n_ready_running_threads = thread_current () == idle_thread
+                                                   ? list_size (&ready_list)
+                                                   : list_size (&ready_list) + 1;
+  load_avg = fp_add (
+    fp_mul (LOAD_AVG_DECAY_FP, load_avg),
+    fp_int_mul (ONE_MINUS_LOAD_AVG_DECAY_FP, n_ready_running_threads)
+  )
 }
