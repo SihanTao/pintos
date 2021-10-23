@@ -24,6 +24,7 @@
 #define THREAD_MAGIC 0xcd6abf4b
 #define LOAD_AVG_DECAY_FP 16111
 #define ONE_MINUS_LOAD_AVG_DECAY_FP 273
+#define THREAD_INIT_MLFQS -1
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -70,6 +71,7 @@ static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
+static void init_thread_inner (struct thread *, const char *name, int priority, bool is_init_thread_in_mlfqs);
 static bool is_thread (struct thread *) UNUSED;
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
@@ -79,6 +81,8 @@ static fixed_point_t load_avg;
 static int one_sec_count_down;
 static void update_load_avg(void);
 static void update_recent_cpu_allthread(void);
+static int calculate_mlfqs_priority(struct thread * t);
+static void update_recent_cpu(struct thread * t, void* aux UNUSED);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -106,7 +110,8 @@ thread_init (void)
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
-  init_thread (initial_thread, "main", PRI_DEFAULT);
+  // 
+  init_thread_inner (initial_thread, "main", PRI_DEFAULT, thread_mlfqs);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 }
@@ -141,15 +146,13 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
-  if (one_sec_count_down == 1) // there are $TIMER_FREQ whole numbers in [1, $TIMER_FREQ]
+  
+  --one_sec_count_down;
+  if (one_sec_count_down == 0) 
   {
     one_sec_count_down = TIMER_FREQ;
     update_load_avg();
     update_recent_cpu_allthread();
-  }
-  else
-  {
-    --one_sec_count_down;
   }
 
   if (t != idle_thread)
@@ -169,8 +172,16 @@ thread_tick (void)
 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
+  {
+    if (thread_mlfqs) {
+      t->priority = calculate_mlfqs_priority(t);
+    }
     intr_yield_on_return ();
+  }
+    
+
 }
+
 
 /* Prints thread statistics. */
 void
@@ -502,10 +513,17 @@ is_thread (struct thread *t)
   return t != NULL && t->magic == THREAD_MAGIC;
 }
 
+
+static void
+init_thread (struct thread *t, const char *name, int priority )
+{
+  init_thread_inner(t, name, priority, false);
+}
+
 /* Does basic initialization of T as a blocked thread named
    NAME. */
 static void
-init_thread (struct thread *t, const char *name, int priority)
+init_thread_inner (struct thread *t, const char *name, int priority, bool is_init_thread_in_mlfqs)
 {
   enum intr_level old_level;
 
@@ -516,9 +534,13 @@ init_thread (struct thread *t, const char *name, int priority)
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
-  t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->stack = (uint8_t *) t + PGSIZE;
+  t->nice = thread_mlfqs 
+          ? (is_init_thread_in_mlfqs ? 0 
+          : thread_current ()->nice) : 0;
+  t->recent_cpu = 0;
+  t->priority = thread_mlfqs ? calculate_mlfqs_priority(t) : priority;
   list_init (&t->list_of_locks);
 
   old_level = intr_disable ();
@@ -687,7 +709,7 @@ update_load_avg(void)
   );
 }
 
-void 
+static void 
 update_recent_cpu(struct thread * t, void* aux UNUSED)
 {
   fixed_point_t load_avg_times_2 = fp_int_mul(load_avg, 2);
@@ -709,3 +731,17 @@ update_recent_cpu_allthread(void)
   thread_foreach(update_recent_cpu, NULL);
 
 }
+
+
+static int 
+calculate_mlfqs_priority(struct thread * t) 
+{
+  int priority =  PRI_MAX - to_intn(fp_int_div(t->recent_cpu, 4)) - (t->nice * 2);
+  if (priority > PRI_MAX) 
+  {
+    return PRI_MAX;
+  } else if (priority < PRI_MIN) {
+    return PRI_MIN;
+  }
+  return priority;
+} 
