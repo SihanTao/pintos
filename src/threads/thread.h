@@ -90,6 +90,7 @@ struct thread
     int priority;                       /* Priority. */
     struct list list_of_locks;
     struct list_elem allelem;           /* List element for all threads list. */
+    int nice;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
