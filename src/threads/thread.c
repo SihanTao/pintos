@@ -701,7 +701,8 @@ update_load_avg(void)
   ASSERT (timer_ticks() % TIMER_FREQ == 0);
 
   int n_ready_running_threads = thread_current () != idle_thread + list_size(&ready_list);
-  fixed_point_t first_term = fp_mul (fp_int_div(to_fp(59), 60), load_avg);
+  fixed_point_t a = fp_int_div(to_fp(59), 60);
+  fixed_point_t first_term = fp_mul (a, load_avg);
   fixed_point_t second_term = fp_int_mul (fp_int_div(to_fp(1), 60), n_ready_running_threads);
 
   load_avg = fp_add(first_term, second_term);
