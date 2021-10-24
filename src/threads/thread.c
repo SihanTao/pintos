@@ -702,10 +702,11 @@ less_thread_effective_priority (const struct list_elem * a, const struct list_el
 void
 update_load_avg(void)
 {
-  ASSERT ( timer_ticks () % TIMER_FREQ == 0);
-  int n_ready_running_threads = thread_current () == idle_thread
-                                                   ? list_size (&ready_list)
-                                                   : list_size (&ready_list) + 1;
+  ASSERT (thread_mlfqs)
+  ASSERT (intr_context)
+  ASSERT (timer_ticks() % TIMER_FREQ == 0);
+
+  int n_ready_running_threads = thread_current () != idle_thread + list_size(&ready_list);
   load_avg = fp_add (
     fp_mul (LOAD_AVG_DECAY_FP, load_avg),
     fp_int_mul (ONE_MINUS_LOAD_AVG_DECAY_FP, n_ready_running_threads)
