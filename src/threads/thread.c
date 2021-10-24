@@ -80,7 +80,7 @@ static tid_t allocate_tid (void);
 static fixed_point_t load_avg;
 static int one_sec_count_down;
 static void update_load_avg(void);
-static void update_recent_cpu_allthread(void);
+static void update_recent_cpu_and_priority_allthread(void);
 static int calculate_mlfqs_priority(struct thread * t);
 static void update_recent_cpu(struct thread * t, void* aux UNUSED);
 
@@ -106,6 +106,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  load_avg = to_fp(0);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -124,7 +125,6 @@ thread_start (void)
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
   thread_create ("idle", PRI_MIN, idle, &idle_started);
-  load_avg = to_fp(0);
 
   /* Start preemptive thread scheduling. */
   intr_enable ();
@@ -159,7 +159,7 @@ thread_tick (void)
     if (ticks % TIMER_FREQ == 0) 
     {
       update_load_avg();
-      update_recent_cpu_allthread();
+      update_recent_cpu_and_priority_allthread();
     }
 
     if (ticks % TIME_SLICE == 0)
@@ -181,11 +181,8 @@ thread_tick (void)
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
   {
-
     intr_yield_on_return ();
   }
-    
-
 }
 
 
@@ -731,9 +728,19 @@ update_recent_cpu(struct thread * t, void* aux UNUSED)
 }
 
 void
-update_recent_cpu_allthread(void)
+update_recent_cpu_and_priority_allthread(void)
 {
-  thread_foreach(update_recent_cpu, NULL);
+  struct list_elem *e;
+
+  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
+  {
+    struct thread *t = list_entry(e, struct thread, elem);
+    if (t != idle_thread)
+    {
+      update_recent_cpu(t);
+      t->priority = calculate_mlfqs_priority(t);
+    } 
+  }
 }
 
 static int 
