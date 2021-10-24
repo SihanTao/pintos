@@ -14,9 +14,10 @@ typedef int32_t fixed_point_t;
 #define to_intz(x) ((x) / ___f)
 
 // convert x to integer rounding toward nearest
-#define to_intn(x) ((x) >= 0            \
+#define to_intn(x) ((((x) >= 0            \
                         ? (x) + (___f / 2) \
-                        : (x) - (___f / 2))
+                        : (x) - (___f / 2)))\
+                        / ___f)
 
 #define fp_add(x, y) ((x) + (y))
 

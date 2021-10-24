@@ -102,7 +102,6 @@ thread_init (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
   one_sec_count_down = TIMER_FREQ;
-  load_avg = 0;
 
   lock_init (&tid_lock);
   list_init (&ready_list);
@@ -125,6 +124,7 @@ thread_start (void)
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
   thread_create ("idle", PRI_MIN, idle, &idle_started);
+  load_avg = to_fp(0);
 
   /* Start preemptive thread scheduling. */
   intr_enable ();
@@ -706,7 +706,6 @@ void
 update_load_avg(void)
 {
   ASSERT (thread_mlfqs)
-  ASSERT (intr_context)
   ASSERT (timer_ticks() % TIMER_FREQ == 0);
 
   int n_ready_running_threads = thread_current () != idle_thread + list_size(&ready_list);
