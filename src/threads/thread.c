@@ -146,21 +146,26 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
-  
+
   if (thread_mlfqs)
   {
-    --one_sec_count_down;
+    int64_t ticks = timer_ticks();
+
     if (t != idle_thread)
     {
       t->recent_cpu = fp_int_add(t->recent_cpu, 1);
     }
 
-    if (one_sec_count_down == 0) 
+    if (ticks % TIMER_FREQ == 0) 
     {
-      one_sec_count_down = TIMER_FREQ;
       update_load_avg();
       update_recent_cpu_allthread();
     }
+
+    if (ticks % TIME_SLICE == 0)
+    {
+      t->priority = calculate_mlfqs_priority(t);
+    }    
   }
 
   /* Update statistics. */
@@ -176,9 +181,7 @@ thread_tick (void)
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
   {
-    if (thread_mlfqs) {
-      t->priority = calculate_mlfqs_priority(t);
-    }
+
     intr_yield_on_return ();
   }
     
