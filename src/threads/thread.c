@@ -421,7 +421,19 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice) 
 {
+  enum intr_level old_level;
+  struct thread * cur = thread_current();
+
+  old_level = intr_disable ();
   thread_current ()->nice = nice;
+  int old_priority = cur->priority;
+  cur->priority = calculate_mlfqs_priority(cur);
+  if (old_priority > cur->priority)
+  {
+    thread_yield();
+  }
+
+  intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
@@ -436,7 +448,7 @@ int
 thread_get_load_avg (void) 
 {
   return to_intn ( fp_int_mul (load_avg, 100));
-  // TODO : improve this
+  // TODO: improve this
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
