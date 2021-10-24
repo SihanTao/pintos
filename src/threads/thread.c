@@ -82,7 +82,7 @@ static int one_sec_count_down;
 static void update_load_avg(void);
 static void update_recent_cpu_and_priority_allthread(void);
 static int calculate_mlfqs_priority(struct thread * t);
-static void update_recent_cpu(struct thread * t, void* aux UNUSED);
+static void update_recent_cpu(struct thread * t);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -713,7 +713,7 @@ update_load_avg(void)
 }
 
 static void 
-update_recent_cpu(struct thread * t, void* aux UNUSED)
+update_recent_cpu(struct thread * t)
 {
   fixed_point_t load_avg_times_2 = fp_int_mul(load_avg, 2);
   fixed_point_t coefficient = fp_div (
