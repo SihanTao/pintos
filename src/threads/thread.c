@@ -155,9 +155,8 @@ thread_tick (void)
     {
       update_load_avg();
       update_recent_cpu_and_priority_allthread();
-    }
-
-    if (ticks % TIME_SLICE == 0)
+    } 
+    else if (ticks % TIME_SLICE == 0)
     {
       t->priority = calculate_mlfqs_priority(t);
     }    
@@ -293,7 +292,7 @@ thread_unblock (struct thread *t)
   struct thread * cur = thread_current();
   if (
       (thread_get_effective_priority (t) > thread_get_effective_priority (cur)) 
-      && cur != idle_thread
+      && cur != idle_thread && !thread_mlfqs
       )
   {
     thread_yield();
@@ -690,7 +689,7 @@ static bool less_lock_priority (const struct list_elem * a, const struct list_el
 
 int thread_get_effective_priority(struct thread * t)
 {
-  if (list_empty(&t->list_of_locks))
+  if (list_empty(&t->list_of_locks) || thread_mlfqs)
     return t->priority;
   struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, less_lock_priority, NULL),
           struct lock, elem);
@@ -717,7 +716,7 @@ update_load_avg(void)
   ASSERT (thread_mlfqs)
   ASSERT (timer_ticks() % TIMER_FREQ == 0);
 
-  int n_ready_running_threads = thread_current () != idle_thread + list_size(&ready_list);
+  int n_ready_running_threads = (thread_current () != idle_thread) + list_size(&ready_list);
   fixed_point_t a = fp_int_div(to_fp(59), 60);
   fixed_point_t first_term = fp_mul (a, load_avg);
   fixed_point_t second_term = fp_int_mul (fp_int_div(to_fp(1), 60), n_ready_running_threads);
