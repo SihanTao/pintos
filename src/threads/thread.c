@@ -22,8 +22,6 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
-#define LOAD_AVG_DECAY_FP 16111
-#define ONE_MINUS_LOAD_AVG_DECAY_FP 273
 #define THREAD_INIT_MLFQS -1
 
 /* List of processes in THREAD_READY state, that is, processes
@@ -78,7 +76,6 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static fixed_point_t load_avg;
-static int one_sec_count_down;
 static void update_load_avg(void);
 static void update_recent_cpu_and_priority_allthread(void);
 static int calculate_mlfqs_priority(struct thread * t);
@@ -101,7 +98,6 @@ void
 thread_init (void) 
 {
   ASSERT (intr_get_level () == INTR_OFF);
-  one_sec_count_down = TIMER_FREQ;
 
   lock_init (&tid_lock);
   list_init (&ready_list);
@@ -110,7 +106,6 @@ thread_init (void)
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
-  // 
   init_thread_inner (initial_thread, "main", PRI_DEFAULT, thread_mlfqs);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
@@ -540,8 +535,8 @@ init_thread_inner (struct thread *t, const char *name, int priority, bool is_ini
   t->magic = THREAD_MAGIC;
   t->stack = (uint8_t *) t + PGSIZE;
   t->nice = thread_mlfqs 
-          ? (is_init_thread_in_mlfqs ? 0 
-          : thread_current ()->nice) : 0;
+          ? (is_init_thread_in_mlfqs ? 0 : thread_current ()->nice) 
+          : 0;
   t->recent_cpu = 0;
   t->priority = thread_mlfqs ? calculate_mlfqs_priority(t) : priority;
   list_init (&t->list_of_locks);
@@ -706,10 +701,10 @@ update_load_avg(void)
   ASSERT (timer_ticks() % TIMER_FREQ == 0);
 
   int n_ready_running_threads = thread_current () != idle_thread + list_size(&ready_list);
-  load_avg = fp_add (
-    fp_mul (LOAD_AVG_DECAY_FP, load_avg),
-    fp_int_mul (ONE_MINUS_LOAD_AVG_DECAY_FP, n_ready_running_threads)
-  );
+  fixed_point_t first_term = fp_mul (fp_int_div(to_fp(59), 60), load_avg);
+  fixed_point_t second_term = fp_int_mul (fp_int_div(to_fp(1), 60), n_ready_running_threads);
+
+  load_avg = fp_add(first_term, second_term);
 }
 
 static void 
