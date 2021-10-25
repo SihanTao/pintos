@@ -8,6 +8,7 @@ typedef int32_t fixed_point_t;
 #define ___f (0x4000)
 // 1 << 14
 
+// pre : 0 <= n <= (1 << 17) - 1 i.e. 131071
 #define to_fp(n) ((n)*___f)
 
 // convert x to integer rounding toward zero
@@ -23,9 +24,9 @@ typedef int32_t fixed_point_t;
 
 #define fp_sub(x, y) ((x) - (y))
 
-#define fp_int_add(x, n) (fp_add(x, to_fp(n)))
+#define fp_int_add(x, n) (fp_add((x), to_fp(n)))
 
-#define fp_int_sub(x, n) (fp_sub(x, to_fp(n)))
+#define fp_int_sub(x, n) (fp_sub((x), to_fp(n)))
 
 #define fp_mul(x, y) (((int64_t)(x)) * (y) / ___f)
 
