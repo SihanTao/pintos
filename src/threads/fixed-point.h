@@ -32,7 +32,7 @@ typedef int32_t fixed_point_t;
 
 #define fp_mul(x, y) ((((int64_t)(x)) * (y)) >> ___q)
 
-#define fp_div(x, y) ((((int64_t)(x)) >> ___q) / (y))
+#define fp_div(x, y) ((((int64_t)(x)) << ___q) / (y))
 
 #define fp_int_mul(x, n) ((x) * (n))
 
