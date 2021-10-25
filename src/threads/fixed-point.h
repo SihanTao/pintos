@@ -16,19 +16,18 @@ typedef int32_t fixed_point_t;
 // convert x to integer rounding toward zero
 #define to_intz(x) ((x) >> ___q)
 
+#define to_int2dp(x) (to_intn (fp_int_mul ((x), n)))
+
 // convert x to integer rounding toward nearest
-#define to_intn(x) (((x) >= 0                \
-                         ? (x) + ___half_f   \
-                         : (x)-___half_f) >> \
-                    ___q)
+#define to_intn(x) (((x) >= 0 ? (x) + ___half_f : (x) - ___half_f) >> ___q)
 
 #define fp_add(x, y) ((x) + (y))
 
 #define fp_sub(x, y) ((x) - (y))
 
-#define fp_int_add(x, n) (fp_add((x), to_fp(n)))
+#define fp_int_add(x, n) (fp_add ((x), to_fp (n)))
 
-#define fp_int_sub(x, n) (fp_sub((x), to_fp(n)))
+#define fp_int_sub(x, n) (fp_sub ((x), to_fp (n)))
 
 #define fp_mul(x, y) ((((int64_t)(x)) * (y)) >> ___q)
 // multiplication first gives better precision
