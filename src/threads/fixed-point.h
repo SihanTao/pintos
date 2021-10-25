@@ -31,8 +31,10 @@ typedef int32_t fixed_point_t;
 #define fp_int_sub(x, n) (fp_sub((x), to_fp(n)))
 
 #define fp_mul(x, y) ((((int64_t)(x)) * (y)) >> ___q)
+// multiplication first gives better precision
 
 #define fp_div(x, y) ((((int64_t)(x)) << ___q) / (y))
+// multiplication first gives better precision
 
 #define fp_int_mul(x, n) ((x) * (n))
 

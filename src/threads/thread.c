@@ -22,7 +22,8 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
-#define THREAD_INIT_MLFQS -1
+#define LOAD_AVG_DECAY_FACTOR_FP 16110 // fixed-point 59 / 60
+#define LOAD_AVG_COMPLEMENT_FP 273 // fixed-point 1 / 60
 
 #define max(x, y) ((x) > (y) ? (x) : (y))
 #define min(x, y) ((x) < (y) ? (x) : (y))
@@ -80,9 +81,10 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static fixed_point_t load_avg;
 static void update_load_avg(void);
-static void update_recent_cpu_and_priority_allthread(void);
-static int calculate_mlfqs_priority(struct thread * t);
-static void update_recent_cpu(struct thread * t);
+static void update_recent_cpu_and_priority(struct thread * t, void * aux UNUSED);
+static inline int calculate_mlfqs_priority(struct thread * t);
+static inline void update_recent_cpu(struct thread * t);
+static inline void thread_tick_mlfqs (struct thread * t);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -146,24 +148,7 @@ thread_tick (void)
   struct thread *t = thread_current ();
 
   if (thread_mlfqs)
-  {
-    int64_t ticks = timer_ticks();
-
-    if (t != idle_thread)
-    {
-      t->recent_cpu = fp_int_add(t->recent_cpu, 1);
-    }
-
-    if (ticks % TIMER_FREQ == 0) 
-    {
-      update_load_avg();
-      update_recent_cpu_and_priority_allthread();
-    } 
-    else if (ticks % TIME_SLICE == 0)
-    {
-      t->priority = calculate_mlfqs_priority(t);
-    }    
-  }
+    thread_tick_mlfqs(t);
 
   /* Update statistics. */
   if (t == idle_thread)
@@ -177,11 +162,25 @@ thread_tick (void)
 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
-  {
     intr_yield_on_return ();
-  }
 }
 
+static inline void
+thread_tick_mlfqs (struct thread * t)
+{
+  int64_t ticks = timer_ticks();
+
+    if (t != idle_thread)
+      t->recent_cpu = fp_int_add(t->recent_cpu, 1);
+
+    if (ticks % TIMER_FREQ == 0) 
+    {
+      update_load_avg();
+      thread_foreach(update_recent_cpu_and_priority, NULL);
+    } 
+    else if (ticks % TIME_SLICE == 0) // update_recent_cpu_and_priority calc priority for this thread
+      t->priority = calculate_mlfqs_priority(t);
+}
 
 /* Prints thread statistics. */
 void
@@ -431,9 +430,7 @@ thread_set_nice (int nice)
   int old_priority = cur->priority;
   cur->priority = calculate_mlfqs_priority(cur);
   if (old_priority > cur->priority)
-  {
     thread_yield();
-  }
 
   intr_set_level(old_level);
 }
@@ -531,7 +528,7 @@ is_thread (struct thread *t)
 }
 
 
-static void
+static inline void
 init_thread (struct thread *t, const char *name, int priority )
 {
   init_thread_inner(t, name, priority, false);
@@ -551,6 +548,8 @@ init_thread_inner (struct thread *t, const char *name, int priority, bool is_ini
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
+  list_init (&t->list_of_locks);
+
   t->magic = THREAD_MAGIC;
   t->stack = (uint8_t *) t + PGSIZE;
   t->nice = (is_init_thread_in_mlfqs || (!thread_mlfqs))
@@ -558,7 +557,6 @@ init_thread_inner (struct thread *t, const char *name, int priority, bool is_ini
           : thread_current()->nice;
   t->recent_cpu = 0;
   t->priority = thread_mlfqs ? calculate_mlfqs_priority(t) : priority;
-  list_init (&t->list_of_locks);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -720,62 +718,37 @@ update_load_avg(void)
   ASSERT (timer_ticks() % TIMER_FREQ == 0);
 
   int n_ready_running_threads = (thread_current () != idle_thread) + list_size(&ready_list);
-  fixed_point_t a = fp_int_div(to_fp(59), 60);
-  fixed_point_t first_term = fp_mul (a, load_avg);
-  fixed_point_t second_term = fp_int_mul (fp_int_div(to_fp(1), 60), n_ready_running_threads);
+  // showing off that one in our group knows the magic, Doge
 
-  load_avg = fp_add(first_term, second_term);
+  load_avg = fp_add(
+    fp_mul(LOAD_AVG_DECAY_FACTOR_FP, load_avg), 
+    fp_int_mul(LOAD_AVG_COMPLEMENT_FP, n_ready_running_threads));
 }
 
-static void 
+static inline void 
 update_recent_cpu(struct thread * t)
 {
-  int old_recent_cpu = to_intn(t->recent_cpu);
   fixed_point_t load_avg_times_2 = fp_int_mul(load_avg, 2);
-  printf("load_avg_times_2 << 14 : %d\n", load_avg_times_2);
   fixed_point_t coefficient = fp_div (
     load_avg_times_2,
     fp_int_add (load_avg_times_2, 1)
   );
-  printf("coefficient << 14 : %d\n", coefficient);
 
   t->recent_cpu = fp_int_add (
     fp_mul (coefficient, t->recent_cpu), 
     t->nice
   );
-
-  printf("current thread : %s, tid : %d, old recent_cpu : %d, new recent_cpu : %d, load_avg : %d, nice : %d \n",
-    t->name,
-    t->tid,
-    old_recent_cpu,
-    to_intn(t->recent_cpu),
-    thread_get_load_avg(),
-    t->nice
-  );
 }
 
-void
-update_recent_cpu_and_priority_allthread(void)
+
+static void
+update_recent_cpu_and_priority(struct thread * t, void * aux UNUSED)
 {
-  struct list_elem *e;
-
-  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
-  {
-    struct thread *t = list_entry(e, struct thread, allelem);
-    if (t != idle_thread)
-    {
-      printf("updating thread %s %d, nice : %d\n",  t-> name, t->tid, t->nice);
-      printf("recent cpu before decay: %d \n", to_intn(t->recent_cpu));
-      printf("load_avg: %d \n", to_intn(load_avg));
-      update_recent_cpu(t);
-      printf("recent cpu after decay: %d \n", to_intn(t->recent_cpu));
-      t->priority = calculate_mlfqs_priority(t);
-      printf("%s\n", "----------------------------");
-    } 
-  }
+  update_recent_cpu(t);
+  t->priority = calculate_mlfqs_priority(t);
 }
 
-static int 
+static inline int 
 calculate_mlfqs_priority(struct thread * t) 
 {
   int priority =  PRI_MAX - to_intn(fp_int_div(t->recent_cpu, 4)) - (t->nice * 2);
