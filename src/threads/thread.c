@@ -81,9 +81,9 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static fixed_point_t load_avg;
-static void update_load_avg (void);
-static void update_recent_cpu_and_priority (struct thread *t,
-                                            void *aux UNUSED);
+static inline void update_load_avg (void);
+static inline void update_recent_cpu_and_priority (struct thread *t,
+                                                   void *aux UNUSED);
 static inline int calculate_mlfqs_priority (struct thread *t);
 static inline void update_recent_cpu (struct thread *t);
 static inline void thread_tick_mlfqs (struct thread *t);
@@ -296,7 +296,7 @@ thread_unblock (struct thread *t)
 
   struct thread *cur = thread_current ();
   if ((thread_get_effective_priority (t) > thread_get_effective_priority (cur))
-      && cur != idle_thread && !thread_mlfqs)
+      && cur != idle_thread && !intr_context ())
     {
       thread_yield ();
     }
@@ -401,13 +401,13 @@ void
 thread_set_priority (int new_priority)
 {
   if (thread_mlfqs)
-      return;
+    return;
 
   struct thread *cur = thread_current ();
   int old_priority = cur->priority;
   cur->priority = new_priority;
   if (old_priority > new_priority)
-      thread_yield ();
+    thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -436,25 +436,24 @@ thread_set_nice (int nice)
 }
 
 /* Returns the current thread's nice value. */
-int
+inline int
 thread_get_nice (void)
 {
   return thread_current ()->nice;
 }
 
 /* Returns 100 times the system load average. */
-int
+inline int
 thread_get_load_avg (void)
 {
-  return to_intn (fp_int_mul (load_avg, 100));
-  // TODO: improve this
+  return to_int2dp (load_avg);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
-int
+inline int
 thread_get_recent_cpu (void)
 {
-  return to_intn (fp_int_mul (thread_current ()->recent_cpu, 100));
+  return to_int2dp (thread_current ()->recent_cpu);
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -521,7 +520,7 @@ running_thread (void)
 }
 
 /* Returns true if T appears to point to a valid thread. */
-static bool
+static inline bool
 is_thread (struct thread *t)
 {
   return t != NULL && t->magic == THREAD_MAGIC;
@@ -585,7 +584,7 @@ static struct thread *
 next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
-      return idle_thread;
+    return idle_thread;
   else
     {
       struct list_elem *e
@@ -701,7 +700,7 @@ thread_get_effective_priority (struct thread *t)
       = list_entry (list_max (&t->list_of_locks, less_lock_priority, NULL),
                     struct lock, elem);
   int lock_priority = get_lock_priority (max_priority_lock);
-  return max(t->priority, lock_priority);
+  return max (t->priority, lock_priority);
 }
 
 bool
@@ -718,7 +717,7 @@ less_thread_effective_priority (const struct list_elem *a,
 }
 
 // pre : in intr_disable context
-void
+static inline void
 update_load_avg (void)
 {
   ASSERT (thread_mlfqs)
@@ -728,19 +727,21 @@ update_load_avg (void)
       = (thread_current () != idle_thread) + list_size (&ready_list);
   // showing off that one in our group knows the magic, Doge
 
-  load_avg
-      = fp_add (fp_mul (LOAD_AVG_DECAY_FACTOR_FP, load_avg),
-                fp_int_mul (LOAD_AVG_COMPLEMENT_FP, n_ready_running_threads));
+  load_avg = fp_int_div (
+      fp_int_add (fp_int_mul (load_avg, 59), n_ready_running_threads), 60);
+  // or (load_avg * 59 + to_fp (n_ready_running_threads)) / 60
+  // which is better?
 }
 
+/*
+ * (load_avg * 2) / (load_avg * 2 - 1) * recent_cpu + nice
+ *
+ */
 static inline void
 update_recent_cpu (struct thread *t)
 {
-  fixed_point_t load_avg_times_2 = fp_int_mul (load_avg, 2);
-  fixed_point_t coefficient
-      = fp_div (load_avg_times_2, fp_int_add (load_avg_times_2, 1));
-
-  t->recent_cpu = fp_int_add (fp_mul (coefficient, t->recent_cpu), t->nice);
+  t->recent_cpu = ((int64_t)load_avg * t->recent_cpu) / (load_avg + ___half_f)
+                  + to_fp (t->nice);
 }
 
 static void
@@ -750,10 +751,13 @@ update_recent_cpu_and_priority (struct thread *t, void *aux UNUSED)
   t->priority = calculate_mlfqs_priority (t);
 }
 
+/*
+ * PRI_MAX - (recent_cpu / 4) - (nice * 2)
+ *
+ */
 static inline int
 calculate_mlfqs_priority (struct thread *t)
 {
-  int priority
-      = PRI_MAX - to_intn (fp_int_div (t->recent_cpu, 4)) - (t->nice * 2);
+  int priority = PRI_MAX - shiftr_to_intn (t->recent_cpu, 2) - (t->nice << 1);
   return min (max (priority, PRI_MIN), PRI_MAX);
 }

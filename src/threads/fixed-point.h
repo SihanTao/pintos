@@ -16,10 +16,10 @@ typedef int32_t fixed_point_t;
 // convert x to integer rounding toward zero
 #define to_intz(x) ((x) >> ___q)
 
-#define to_int2dp(x) (to_intn (fp_int_mul ((x), n)))
+#define to_int2dp(x) (to_intn (fp_int_mul ((x), 100)))
 
 // convert x to integer rounding toward nearest
-#define to_intn(x) (((x) >= 0 ? (x) + ___half_f : (x) - ___half_f) >> ___q)
+#define to_intn(x) (((x) >= 0 ? (x) + ___half_f : (x)-___half_f) >> ___q)
 
 #define fp_add(x, y) ((x) + (y))
 
@@ -38,5 +38,13 @@ typedef int32_t fixed_point_t;
 #define fp_int_mul(x, n) ((x) * (n))
 
 #define fp_int_div(x, n) ((x) / (n))
+
+#define fp_mul_div(x, y, z) ((uint64_t) (x) * (y) / (z))
+
+#define shiftr_to_intn(x, n)                                                  \
+  (((x) >= 0 ? (x) + (1 << (___q + (n))) : (x) - (1 << (___q + (n))))         \
+   >> (___q + (n)))
+// this can give better precision compare to to_intn(x >> n)
+// since div and >> loses precision
 
 #endif // _THREAD_FIXED_POINT_H
