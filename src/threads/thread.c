@@ -730,14 +730,26 @@ update_load_avg(void)
 static void 
 update_recent_cpu(struct thread * t)
 {
+  int old_recent_cpu = to_intn(t->recent_cpu);
   fixed_point_t load_avg_times_2 = fp_int_mul(load_avg, 2);
+  printf("load_avg_times_2 << 14 : %d\n", load_avg_times_2);
   fixed_point_t coefficient = fp_div (
     load_avg_times_2,
     fp_int_add (load_avg_times_2, 1)
   );
+  printf("coefficient << 14 : %d\n", coefficient);
 
   t->recent_cpu = fp_int_add (
     fp_mul (coefficient, t->recent_cpu), 
+    t->nice
+  );
+
+  printf("current thread : %s, tid : %d, old recent_cpu : %d, new recent_cpu : %d, load_avg : %d, nice : %d \n",
+    t->name,
+    t->tid,
+    old_recent_cpu,
+    to_intn(t->recent_cpu),
+    thread_get_load_avg(),
     t->nice
   );
 }
@@ -749,11 +761,16 @@ update_recent_cpu_and_priority_allthread(void)
 
   for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
   {
-    struct thread *t = list_entry(e, struct thread, elem);
+    struct thread *t = list_entry(e, struct thread, allelem);
     if (t != idle_thread)
     {
+      printf("updating thread %s %d, nice : %d\n",  t-> name, t->tid, t->nice);
+      printf("recent cpu before decay: %d \n", to_intn(t->recent_cpu));
+      printf("load_avg: %d \n", to_intn(load_avg));
       update_recent_cpu(t);
+      printf("recent cpu after decay: %d \n", to_intn(t->recent_cpu));
       t->priority = calculate_mlfqs_priority(t);
+      printf("%s\n", "----------------------------");
     } 
   }
 }
