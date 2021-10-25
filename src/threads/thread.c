@@ -24,6 +24,9 @@
 #define THREAD_MAGIC 0xcd6abf4b
 #define THREAD_INIT_MLFQS -1
 
+#define max(x, y) ((x) > (y) ? (x) : (y))
+#define min(x, y) ((x) < (y) ? (x) : (y))
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -550,9 +553,9 @@ init_thread_inner (struct thread *t, const char *name, int priority, bool is_ini
   strlcpy (t->name, name, sizeof t->name);
   t->magic = THREAD_MAGIC;
   t->stack = (uint8_t *) t + PGSIZE;
-  t->nice = thread_mlfqs 
-          ? (is_init_thread_in_mlfqs ? 0 : thread_current ()->nice) 
-          : 0;
+  t->nice = (is_init_thread_in_mlfqs || (!thread_mlfqs))
+          ? 0
+          : thread_current()->nice;
   t->recent_cpu = 0;
   t->priority = thread_mlfqs ? calculate_mlfqs_priority(t) : priority;
   list_init (&t->list_of_locks);
@@ -759,11 +762,5 @@ static int
 calculate_mlfqs_priority(struct thread * t) 
 {
   int priority =  PRI_MAX - to_intn(fp_int_div(t->recent_cpu, 4)) - (t->nice * 2);
-  if (priority > PRI_MAX) 
-  {
-    return PRI_MAX;
-  } else if (priority < PRI_MIN) {
-    return PRI_MIN;
-  }
-  return priority;
+  return min(max(priority, PRI_MIN), PRI_MAX);
 } 
