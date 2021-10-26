@@ -30,7 +30,8 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
+static struct list ready_list[64];
+static int highest_ready_priority;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -107,7 +108,9 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
-  list_init (&ready_list);
+  for (int i = 0; i < 64; i++)
+    list_init (&ready_list[i]);
+  highest_ready_priority = 0;
   list_init (&all_list);
   load_avg = to_fp (0);
 
@@ -139,7 +142,10 @@ thread_start (void)
 size_t
 threads_ready (void)
 {
-  return list_size (&ready_list);
+  size_t sum = 0;
+  for (int i = 0; i < 64; i++)
+    sum += list_size (ready_list + i);
+  return sum;
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -291,7 +297,9 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  int new_t_priority = thread_get_effective_priority (t);
+  highest_ready_priority = max (new_t_priority, highest_ready_priority);
+  list_push_back (ready_list + new_t_priority, &t->elem);
   t->status = THREAD_READY;
 
   struct thread *cur = thread_current ();
@@ -369,10 +377,11 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
+  int priority = thread_get_effective_priority (cur);
   if (cur != idle_thread)
     {
-      list_insert_ordered (&ready_list, &cur->elem,
-                           less_thread_effective_priority, NULL);
+      list_push_back (ready_list + priority, &cur->elem);
+      highest_ready_priority = max (priority, highest_ready_priority);
     }
   cur->status = THREAD_READY;
   schedule ();
@@ -583,13 +592,21 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void)
 {
-  if (list_empty (&ready_list))
+  if (list_empty (ready_list + highest_ready_priority))
     return idle_thread;
   else
     {
-      struct list_elem *e
-          = list_max (&ready_list, less_thread_effective_priority, NULL);
-      list_remove (e);
+      struct list_elem *e = list_pop_front (ready_list + highest_ready_priority);
+      if (list_empty (ready_list + highest_ready_priority))
+        {
+          for (int i = highest_ready_priority; i > -1; i--)
+            if (!list_empty (ready_list + i))
+              {
+                highest_ready_priority = i;
+                return list_entry (e, struct thread, elem);
+              }
+          highest_ready_priority = 0;
+        }
       return list_entry (e, struct thread, elem);
     }
 }
@@ -724,7 +741,7 @@ update_load_avg (void)
   ASSERT (timer_ticks () % TIMER_FREQ == 0);
 
   int n_ready_running_threads
-      = (thread_current () != idle_thread) + list_size (&ready_list);
+      = (thread_current () != idle_thread) + threads_ready ();
   // showing off that one in our group knows the magic, Doge
 
   load_avg = fp_int_div (
