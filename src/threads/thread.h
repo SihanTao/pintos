@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed_point.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,6 +24,7 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define PRI_COUNT 64                    /* Total number of priority. */
 
 /* A kernel thread or user process.
 
@@ -90,7 +92,8 @@ struct thread
     int priority;                       /* Priority. */
     struct list list_of_locks;
     struct list_elem allelem;           /* List element for all threads list. */
-
+    int nice;
+    fp_14 recent_cpu;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
