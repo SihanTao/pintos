@@ -265,7 +265,7 @@ struct semaphore_elem
   {
     struct list_elem elem;              /* List element. */
     struct semaphore semaphore;         /* This semaphore. */
-    struct thread *holder;
+    struct thread *holder;              /* Used to store the thread waiting for conditional variable. */
   };
 
 /* Initializes condition variable COND.  A condition variable
