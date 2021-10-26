@@ -63,6 +63,8 @@ bool thread_mlfqs;
 
 static fp_14 load_avg;
 static struct list ready_queues[PRI_COUNT];
+static int ready_queues_size;
+static struct thread *threads_run_in_time_slice[TIME_SLICE];
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -76,6 +78,7 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static void thread_tick_mlfqs(struct thread *t);
 static int calculate_mlfqs_priority(struct thread *t);
 static void update_mlfqs_priority(struct thread *t, void *aux);
 static void update_recent_cpu(struct thread *t, void *aux);
@@ -84,7 +87,6 @@ static void assign_thread_queue(struct thread *t);
 static bool ready_queues_empty(void);
 static struct list_elem *choose_thread_to_run_mlfqs (void);
 static struct list_elem *choose_thread_to_run_donation (void);
-static int queues_size (struct list *queues);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -113,6 +115,7 @@ thread_init (void)
     for (int i = 0; i < PRI_COUNT; i++) {
       list_init (&ready_queues[i]);
     }
+    ready_queues_size = 0;
   }
 
   /* Set up a thread structure for the running thread. */
@@ -144,7 +147,7 @@ size_t
 threads_ready (void)
 {
   if (thread_mlfqs) {
-    return queues_size(ready_queues);
+    return ready_queues_size;
   } else {
     return list_size (&ready_list);
   }
@@ -167,24 +170,38 @@ thread_tick (void)
   else
     kernel_ticks++;
 
-  if (thread_mlfqs) {
-    if (t != idle_thread)
-      t->recent_cpu = x_add_n (t->recent_cpu, 1);
-    
-    if (timer_ticks () % TIMER_FREQ == 0) {
-      update_load_avg();
-      thread_foreach (update_recent_cpu, NULL);
-    }
-  }
+  if (thread_mlfqs)
+    thread_tick_mlfqs (t);
     
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE) {
-    if (thread_mlfqs) {
-      thread_foreach (update_mlfqs_priority, NULL);
-    }
     intr_yield_on_return ();
   }
 }
+
+static void
+thread_tick_mlfqs(struct thread *t)
+{
+  int slot = timer_ticks () % TIME_SLICE;
+  
+  if (t != idle_thread){
+    t->recent_cpu = x_add_n (t->recent_cpu, 1);
+    threads_run_in_time_slice[slot] = t;
+  }
+
+    
+  if (timer_ticks () % TIMER_FREQ == 0) {
+    update_load_avg();
+    thread_foreach (update_recent_cpu, NULL);
+  }
+
+  if (slot == 0) {
+    for (int i = 0; i < TIME_SLICE; i++) {
+      update_mlfqs_priority (threads_run_in_time_slice[i], NULL);
+    }
+  }
+}
+  
 
 /* Prints thread statistics. */
 void
@@ -440,6 +457,7 @@ thread_set_nice (int nice UNUSED)
   enum intr_level old_level = intr_disable();
   int old_priority = t->priority;
   t->nice = nice;
+  // update_recent_cpu (t, NULL);
   t->priority = calculate_mlfqs_priority (t);
   if(old_priority > t->priority) {
     thread_yield ();
@@ -602,27 +620,20 @@ next_thread_to_run (void)
 
 static bool
 ready_queues_empty(void) {
-  enum intr_level old_level = intr_disable ();
-  bool result = true;
-  for (int i = 0; i < PRI_COUNT; i++) {
-    if (list_size (&ready_queues[i])) {
-      result = false;
-      break;
-    }
-  }
-  intr_set_level (old_level);
-  return result;
+  return ready_queues_size == 0;
 }
 
 static struct list_elem *
 choose_thread_to_run_mlfqs (void)
 {
   ASSERT (!ready_queues_empty ());
+  ASSERT (intr_get_level () == INTR_OFF);
   
   int i = PRI_MAX;
   while (list_size (&ready_queues[i]) == 0) {
     i--;
   }
+  ready_queues_size--;
   return list_front (&ready_queues[i]);
 }
 
@@ -776,7 +787,7 @@ update_load_avg(void) {
   ASSERT (timer_ticks () % TIMER_FREQ == 0);
   
   fp_14 fst = x_mul_y (x_div_n (ntox (59), 60), load_avg);
-  fp_14 snd = x_mul_n (x_div_n (ntox (1), 60), queues_size (ready_queues) + (thread_current () != idle_thread));
+  fp_14 snd = x_mul_n (x_div_n (ntox (1), 60), ready_queues_size + (thread_current () != idle_thread));
   load_avg = x_add_y (fst, snd);
 }
 
@@ -803,18 +814,6 @@ assign_thread_queue(struct thread *t)
   t->priority = mlfqs_priority;
   enum intr_level old_level = intr_disable ();
   list_push_back (&ready_queues[mlfqs_priority], &t->elem);
+  ready_queues_size ++;
   intr_set_level (old_level);
-}
-
-  
-static int
-queues_size (struct list *queues)
-{
-  int res = 0;
-  enum intr_level old_level = intr_disable ();
-  for (int i = 0; i < PRI_COUNT; i++) {
-    res += list_size (&queues[i]);
-  }
-  intr_set_level (old_level);
-  return res;
 }
