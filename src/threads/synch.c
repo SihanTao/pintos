@@ -215,12 +215,13 @@ lock_acquire (struct lock *lock)
       update_lock_cached_priority (lock, cur->cached_priority);
   }
   sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
-  lock->cached_priority = get_lock_priority (lock);
-  intr_set_level (old_level);
-  list_push_back(&lock->holder->list_of_locks, &lock->elem);
-  cur->lock_waiting = NULL;
   
+  cur->lock_waiting = NULL;
+  lock->cached_priority = get_lock_priority (lock);
+  lock->holder = thread_current ();
+  list_push_back(&lock->holder->list_of_locks, &lock->elem);
+  cur->cached_priority = thread_get_effective_priority (cur);
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -347,10 +348,12 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
+  enum intr_level old_level = intr_disable ();
   if (!list_empty (&cond->waiters)) 
   {
     struct list_elem* e = list_max (&cond->waiters, less_sema_priority, NULL);
     list_remove (e);
+    intr_set_level (old_level);
     sema_up (&list_entry (e, struct semaphore_elem, elem)->semaphore);
   }
 }
@@ -375,11 +378,12 @@ int
 get_lock_priority (struct lock * lock)
 {
   ASSERT (lock != NULL);
+  ASSERT (intr_get_level () == INTR_OFF);
+  
   if (list_empty(&lock->semaphore.waiters))
     return 0;
   struct list_elem * e = list_max (&lock->semaphore.waiters, less_thread_effective_priority, NULL);
   struct thread * max_priority_thread = list_entry(e, struct thread, elem);
-
   return max_priority_thread->cached_priority;
 }
 

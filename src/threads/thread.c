@@ -196,7 +196,10 @@ thread_tick_mlfqs(struct thread *t)
     thread_foreach (update_recent_cpu_and_priority, NULL);
   } else if (slot == 0) {
     for (int i = 0; i < TIME_SLICE; i++) {
-      update_mlfqs_priority (threads_run_in_time_slice[i], NULL);
+      struct thread *t = threads_run_in_time_slice[i];
+      if (!is_thread (t))
+	continue;
+      update_mlfqs_priority (t, NULL);
     }
   }
 }
@@ -434,7 +437,9 @@ thread_set_priority (int new_priority)
   struct thread * cur = thread_current();
   int old_priority = cur->priority;
   cur->priority = new_priority;
+  enum intr_level old_level = intr_disable ();
   cur->cached_priority = thread_get_effective_priority (cur);
+  intr_set_level (old_level);
   if (old_priority > new_priority){
     thread_yield();
   }
@@ -741,6 +746,8 @@ static bool less_lock_priority (const struct list_elem * a, const struct list_el
 
 int thread_get_effective_priority(struct thread * t)
 {
+  ASSERT (t != NULL);
+  ASSERT (intr_get_level () == INTR_OFF);
   if (list_empty(&t->list_of_locks))
     return t->priority;
   struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, less_lock_priority, NULL),
