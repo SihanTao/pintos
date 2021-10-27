@@ -69,25 +69,131 @@ Added to thread.c as global varible:
 >> Draw a diagram that illustrates a nested donation in your structure and 
 >> briefly explain how this works.
 
+Assume each thread holds a number of locks with empty waiters initially.
+Suppose that thread A with priority Low acquired lock1 and other locks. Since there's no waiters on each 
+lock of A, thread A's effective priority will be it's own priority - Low;
+
+Now, suppose that thread B with priority Medium holds lock2 and other locks, attempts 
+to acquire lock1. It will be put into lock1's semaphore waiter list. Then, thread_get_effective_priority(A) 
+will return the maximum of its own priority and the "lock priority" of all locks of A;
+
+thread_get_effective_priority(A) = max (A->priority, lock_priority(lock1), lock_priority(locks held by A)...)
+
+and the lock_priority is given by the maximum of effective priority of threads in its waiter list
+
+lock_priority(lock1) = max (thread_get_effective_priority(B), thread_get_effective_priority(all thread waiting for lock1)) 
+ 
+But B is the only thread waiting for lock1, so lock_priority(lock1) = thread_get_effective_priority(B)
+
+Since B holds zero lock, thus lock_acquire(lock1) = effective of thread B = B's base priority = Medium.
+
+Thus, thread A will have effective priority Medium now. 
+
+Suppose that thread C with priority High attempt to acquire lock2. it will be put into lock2's semaphore 
+waiter list. 
+
+again
+
+thread_get_effective_priority(A) = max (A->priority, lock_priority(lock1), lock_priority(lock2), lock_priority(other locks held by A)...)
+
+thread_get_effective_priority(A) gives the lock_priority(lock2) since 
+
+```
+lock_priority(lock2) = max (thread_get_effective_priority(C), thread_get_effective_priority(all thread waiting for lock2)) 
+```
+lock_priority(lock2) is the highest among A and other priority of locks that A holds
+
+Now there are two situations, release lock1 first or release lock2 first.
+
+Consider the first situation, relase lock 1 and then release lock2.
+
+After release lock 1, the effective priority of thread A is given by
+
+```
+thread_get_effective_priority(A) = max (A->priority, lock_priority(lock2), lock_priority(other locks held by A)...)
+```
+
+since lock1 is released.
+
+But the effective priority of A is unchanged (High), because lock_priority(lock2) is the maximum (High).
+
+Then release lock2.
+
+After release lock 1, the effective priority of thread A is given by
+
+```
+thread_get_effective_priority(A) = max (A->priority, lock_priority(other locks held by A)...)
+```
+Because lock2 is released, the effective priority falls back to Low.
+
+Consider situation 2, first lock2 is released.
+
+ the effective priority of thread A is given by
+
+```
+thread_get_effective_priority(A) = max (A->priority, lock_priority(lock1), lock_priority(other locks held by A)...)
+```
+
+The effective priority of thread A is given by lock_priority(lock1), which is Medium;
+
+then lock1 is released, thus the effective priority of A is its base priority;
+
+
 ---- ALGORITHMS ----
 
 >> A3: (3 marks) 
 >> How do you ensure that the highest priority waiting thread wakes up first for
 >> a (i) lock, (ii) semaphore, or (iii) condition variable?
 
-    (i) The lock implementation uses a semaphore in the constructor. 
-    (ii) In our implementation semaphore contains a list of waiters and use a 
-    less function to sort out the priority
-    (iii) thread_get_effective_priority(t) will call get_lock_priority() on 
-    thread t's list_of_locks and return the highest lock_priority or t's priority
-    , whichever higher. get_lock_priority(l) will call thread_get_effective_priority() 
+    (i) Sturture of lock contains a semaphore. 
+
+        when release a lock, `sema_up` is called. Which is described below. 
+
+    (ii) The sturture of semaphore contains a list of waiters. 
+
+        `sema_up` would call `thread_unblock` put the thread
+        into one of the 64 ready queues according to its effective priority; And if its effective priority is higher than
+        the current running thread, in thread_unblock it will yield the current thread to let the new thread run. 
+        In thread_yield, we insert the current thread into the ready_list in an increasing order of effective 
+        priority, unless it is idle thread. Then call scheduler to switch the thread. 
+
+    (iii)
+
+        We changed the functions cond_wait and cond_signal. 
+        In cond_wait, we store the thread waiting for conditional variable to be the current thread.
+        In cond_signal, every time we wake up the thread with the highest priority waiting for the condition using list_max.
+
+
+
+ 
+    
+    thread_get_effective_priority(t) will call get_lock_priority() on 
+    thread t's list_of_locks and return the highest lock_priority or t's priority,
+    whichever higher. get_lock_priority(l) will call thread_get_effective_priority() 
     on l's waiters and return the highest thread_priority or return 0 if there's no waiter. 
+    The current running thread must have the highest priority of all threads in ready list, 
+    only when a new thread with higher priority is created or a thread with higher priority 
+    is unblocked or the current running thread release the lock that a higher priority thread is waiting for, 
+    then we call thread_yield()
 
 >> A4: (3 marks)
 >> Describe the sequence of events when a call to lock_acquire() causes a 
 >> priority donation. 
 >> How is nested donation handled?
-lock_acquire calls sema_down; sema_down is encharged for priority donation.
+
+Suppose we have thread A with base priority Low and thread B with 
+base priority High. Suppose now A holds Lock1 and thread B calls lock_acquire(Lock1).
+
+B calls lock_acquire, which then calls sema_down. This causes thread B to be blocked.
+and push back into the waiter list of the semaphore.
+
+
+
+
+
+
+
+
 
 
 >> A5: (3 marks)
