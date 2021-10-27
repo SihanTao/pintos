@@ -708,6 +708,10 @@ less_lock_priority (const struct list_elem *a, const struct list_elem *b,
   return get_lock_priority (lock1) < get_lock_priority (lock2);
 }
 
+/* If the thread does not acquire any lock then return its own priority 
+  else obtain the lock with the highest lock_priority to compare with 
+  thread priority and return the larger one*/
+
 int
 thread_get_effective_priority (struct thread *t)
 {
@@ -720,6 +724,8 @@ thread_get_effective_priority (struct thread *t)
   return max (t->priority, lock_priority);
 }
 
+/* A less function used to sort list of threads according to their effective 
+  priority */
 bool
 less_thread_effective_priority (const struct list_elem *a,
                                 const struct list_elem *b, void *aux UNUSED)
