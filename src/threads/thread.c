@@ -83,6 +83,7 @@ static int calculate_mlfqs_priority(struct thread *t);
 static void update_mlfqs_priority(struct thread *t, void *aux);
 static void update_recent_cpu(struct thread *t, void *aux);
 static void update_load_avg(void);
+static void update_recent_cpu_and_priority(struct thread *t, void *aux);
 static void assign_thread_queue(struct thread *t);
 static bool ready_queues_empty(void);
 static struct list_elem *choose_thread_to_run_mlfqs (void);
@@ -192,10 +193,8 @@ thread_tick_mlfqs(struct thread *t)
     
   if (timer_ticks () % TIMER_FREQ == 0) {
     update_load_avg();
-    thread_foreach (update_recent_cpu, NULL);
-  }
-
-  if (slot == 0) {
+    thread_foreach (update_recent_cpu_and_priority, NULL);
+  } else if (slot == 0) {
     for (int i = 0; i < TIME_SLICE; i++) {
       update_mlfqs_priority (threads_run_in_time_slice[i], NULL);
     }
@@ -807,6 +806,14 @@ update_mlfqs_priority(struct thread *t, void *aux UNUSED)
   }
 }
 
+static void
+update_recent_cpu_and_priority(struct thread *t, void *aux UNUSED)
+{
+  update_recent_cpu (t, aux);
+  update_mlfqs_priority (t, aux);
+}
+  
+  
 /* Update priority of thread and assign it to one of the 64 ready queues */
 static void
 assign_thread_queue(struct thread *t)
