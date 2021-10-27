@@ -14,12 +14,14 @@ FirstName LastName <email@domain.example>
 
 ---- PRELIMINARIES ----
 
->> If you have any preliminary comments on your submission, or notes for the
+>> If you have any prelziminary comments on your submission, or notes for the
 >> markers, please give them here.
 
 >> Please cite any offline or online sources you consulted while preparing your 
 >> submission, other than the Pintos documentation, course text, lecture notes 
 >> and course staff.
+
+None
 
              PRIORITY SCHEDULING
              ===================
@@ -31,6 +33,37 @@ FirstName LastName <email@domain.example>
 >> global or static variable, `typedef', or enumeration.  
 >> Identify the purpose of each in roughly 25 words.
 
+Added to struct thread:
+
+    /* used to store the locks that the thread holds, member for implementing
+    thread_get_effective_priority and lock_acquire. */
+    struct list list_of_locks;
+
+    /* to store the value of recent_cpu for calculating priority. */
+    fixed_point_t recent_cpu;          
+
+
+Added to struct lock:
+
+    /* used in struct thread member list_of_locks to store locks acquired. */
+    struct list_elem elem;      
+
+Added to struct semaphore_elem:
+
+    /* used store the thread which wait for the conditional. */
+    struct thread *holder;
+
+Created a new file fixed-point.h to store the fixed-point arithmetic operations: 
+    
+    /* define a int32_t for the later implementation of struct thread and recent_cpu */
+    typedef int32_t fixed_point_t;
+
+Added to thread.c as global varible: 
+
+    /* used in thread_tick_mlfqs to check the load_avg for every 100 ticks*/
+    static inline void update_load_avg (void);
+
+
 >> A2: (4 marks) 
 >> Draw a diagram that illustrates a nested donation in your structure and 
 >> briefly explain how this works.
@@ -41,10 +74,20 @@ FirstName LastName <email@domain.example>
 >> How do you ensure that the highest priority waiting thread wakes up first for
 >> a (i) lock, (ii) semaphore, or (iii) condition variable?
 
+    (i) The lock implementation uses a semaphore in the constructor. 
+    (ii) In our implementation semaphore contains a list of waiters and use a 
+    less function to sort out the priority
+    (iii) thread_get_effective_priority(t) will call get_lock_priority() on 
+    thread t's list_of_locks and return the highest lock_priority or t's priority
+    , whichever higher. get_lock_priority(l) will call thread_get_effective_priority() 
+    on l's waiters and return the highest thread_priority or return 0 if there's no waiter. 
+
 >> A4: (3 marks)
 >> Describe the sequence of events when a call to lock_acquire() causes a 
 >> priority donation. 
 >> How is nested donation handled?
+lock_acquire calls sema_down; sema_down is encharged for priority donation.
+
 
 >> A5: (3 marks)
 >> Describe the sequence of events when lock_release() is called on a lock that 
