@@ -91,8 +91,8 @@ struct thread
     int priority;                       /* Priority. */
     struct list list_of_locks;          /* To store the locks that the thread holds. */
     struct list_elem allelem;           /* List element for all threads list. */
-    int nice;
-    fixed_point_t recent_cpu;
+    int nice;                           /* Niceness. */
+    fixed_point_t recent_cpu;           /* Recent_cpu of type int32_t. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
