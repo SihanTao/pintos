@@ -22,6 +22,10 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
+#define max(x, y) ((x) > (y) ? (x) : (y))
+#define min(x, y) ((x) < (y) ? (x) : (y))
+#define bound(x, low, high) (max(min((x), (high)), (low)))
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -766,12 +770,7 @@ less_thread_effective_priority (const struct list_elem * a, const struct list_el
 static int
 calculate_mlfqs_priority(struct thread *t) {
   int raw = PRI_MAX - xton_n ((x_div_n (t->recent_cpu, 4))) - (t->nice * 2);
-  if (raw > PRI_MAX) {
-    return PRI_MAX;
-  } else if (raw < PRI_MIN) {
-    return PRI_MIN;
-  }
-  return raw;
+  return bound(raw, PRI_MIN, PRI_MAX);
 }
 
  
