@@ -204,9 +204,9 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  sema_down (&lock->semaphore);
   lock->holder = thread_current ();
   list_push_back(&lock->holder->list_of_locks, &lock->elem);
+  sema_down (&lock->semaphore);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
