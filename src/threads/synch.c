@@ -1,4 +1,4 @@
-/* This file is derived from source code for the Nachos
+/* This file is derived from source code for the NachosA
    instructional operating system.  The Nachos copyright notice
    is reproduced in full below. */
 
@@ -32,7 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-
+static void update_lock_cached_priority(struct lock *l, int new_priority);
+static void update_thread_cached_priority(struct thread *t, int new_priority);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -187,6 +188,7 @@ lock_init (struct lock *lock)
 
   lock->holder = NULL;
   sema_init (&lock->semaphore, 1);
+  lock->cached_priority = 0;
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -204,9 +206,21 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  struct thread *cur = thread_current ();
+
+  enum intr_level old_level = intr_disable ();
+  if (lock->holder != NULL) {
+    cur->lock_waiting = lock;
+    if (cur->cached_priority > lock->cached_priority)
+      update_lock_cached_priority (lock, cur->cached_priority);
+  }
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  lock->cached_priority = get_lock_priority (lock);
+  intr_set_level (old_level);
   list_push_back(&lock->holder->list_of_locks, &lock->elem);
+  cur->lock_waiting = NULL;
+  
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -240,13 +254,14 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-
-  list_remove (&lock->elem);
-
-   
+  list_remove (&lock->elem); 
   lock->holder = NULL;
+  struct thread *cur = thread_current ();
+  enum intr_level old_level = intr_disable ();
+  cur->cached_priority = thread_get_effective_priority (cur);
+  intr_set_level (old_level);
   sema_up (&lock->semaphore);
-
+  
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -259,7 +274,7 @@ lock_held_by_current_thread (const struct lock *lock)
 
   return lock->holder == thread_current ();
 }
-
+
 /* One semaphore in a list. */
 struct semaphore_elem 
   {
@@ -365,8 +380,9 @@ get_lock_priority (struct lock * lock)
   struct list_elem * e = list_max (&lock->semaphore.waiters, less_thread_effective_priority, NULL);
   struct thread * max_priority_thread = list_entry(e, struct thread, elem);
 
-  return thread_get_effective_priority(max_priority_thread);
+  return max_priority_thread->cached_priority;
 }
+
 
 bool
 less_sema_priority(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED)
@@ -376,4 +392,18 @@ less_sema_priority(const struct list_elem * a, const struct list_elem * b, void 
 
   return thread_get_effective_priority(s1->holder) < thread_get_effective_priority(s2->holder);
 
+}
+
+static void
+update_lock_cached_priority(struct lock *l, int new_priority) {
+  l->cached_priority = new_priority;
+  if (new_priority > l->holder->cached_priority)
+    update_thread_cached_priority (l->holder, new_priority);
+}
+
+static void
+update_thread_cached_priority(struct thread *t, int new_priority) {
+  t->cached_priority = new_priority;
+  if (t->lock_waiting != NULL && new_priority > t->lock_waiting->cached_priority)
+    update_lock_cached_priority (t->lock_waiting, new_priority);
 }

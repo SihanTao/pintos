@@ -435,6 +435,7 @@ thread_set_priority (int new_priority)
   struct thread * cur = thread_current();
   int old_priority = cur->priority;
   cur->priority = new_priority;
+  cur->cached_priority = thread_get_effective_priority (cur);
   if (old_priority > new_priority){
     thread_yield();
   }
@@ -444,7 +445,7 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-  return thread_get_effective_priority(thread_current());
+  return thread_current()->cached_priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -574,6 +575,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_init (&t->list_of_locks);
+  t->cached_priority = priority;
 
   if (thread_mlfqs) {
     bool is_initial = strcmp(name, "main") == 0;
@@ -735,7 +737,7 @@ static bool less_lock_priority (const struct list_elem * a, const struct list_el
   struct lock * lock1 = list_entry(a, struct lock, elem);
   struct lock * lock2 = list_entry(b, struct lock, elem);
   
-  return get_lock_priority(lock1) < get_lock_priority(lock2);
+  return lock1->cached_priority < lock2->cached_priority;
 }
 
 int thread_get_effective_priority(struct thread * t)
@@ -744,7 +746,7 @@ int thread_get_effective_priority(struct thread * t)
     return t->priority;
   struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, less_lock_priority, NULL),
           struct lock, elem);
-  int lock_priority = get_lock_priority(max_priority_lock);
+  int lock_priority = max_priority_lock->cached_priority;
   return t->priority > lock_priority ? t->priority : lock_priority;
 }
 
@@ -754,8 +756,8 @@ less_thread_effective_priority (const struct list_elem * a, const struct list_el
   struct thread * t1 = list_entry (a, struct thread, elem);
   struct thread * t2 = list_entry (b, struct thread, elem);
 
-  int priority1 = thread_get_effective_priority (t1);
-  int priority2 = thread_get_effective_priority (t2);
+  int priority1 = t1->cached_priority;
+  int priority2 = t2->cached_priority;
 
   return priority1 < priority2;
 }

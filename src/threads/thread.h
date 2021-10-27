@@ -91,6 +91,8 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list list_of_locks;
+    struct lock *lock_waiting;
+    int cached_priority;
     struct list_elem allelem;           /* List element for all threads list. */
     int nice;
     fp_14 recent_cpu;
