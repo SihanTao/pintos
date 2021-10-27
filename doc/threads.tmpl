@@ -181,24 +181,76 @@ then lock1 is released, thus the effective priority of A is its base priority;
 >> priority donation. 
 >> How is nested donation handled?
 
-Suppose we have thread A with base priority Low and thread B with 
-base priority High. Suppose now A holds Lock1 and thread B calls lock_acquire(Lock1).
+    Suppose we have thread A with base priority Low and thread B with base priority Medium and thread 
+    C with base priority High. Suppose now A holds Lock1 and thread B calls lock_acquire(Lock1), B holds Lock2 
+    and C calls lock_acquire(Lock2).
 
-B calls lock_acquire, which then calls sema_down. This causes thread B to be blocked.
-and push back into the waiter list of the semaphore.
+    B calls lock_acquire, which then calls sema_down. This first push thread B back into the waiter list of the 
+    semaphore and then call thread_block to block thread B.  
 
+    get_lock_priority() first finds the max_priority_thread in its semaphore.waiters,
+    and get the effective priority of the max_priority_thread.
+    Here thread B is in the waiters and it is the max_priority_thread. Since B is trying to acquire lock1, the effective priority is equal to its base priority.
+    Hence the 'lock priority' is Medium now. And through all the function calls, thread A has Medium priority 
 
+    In thread_block, we call schedule() , where the next thread to run is determined by the function
+    next_thread_to_run. This function use list_max to find the max priority thread to run.
+    list_max use list_less_func (here is less_thread_effective_priority).
 
+    less_thread_effective_priority compare the effective priority of two threads by 
+    the function thread_get_effective_priority().
 
+    If the thread does not acquire any lock then return its own priority 
+    else obtain the lock with the highest lock_priority to compare with 
+    thread priority and return the larger one.
 
+    A calls lock_acquire, which then calls sema_down. This first push thread A back into the waiter list of the 
+    semaphore and then call thread_block to block thread A.  
 
+    Now thread B has High priority. After it release Lock2, its effective priority falls back to Medium.
 
+    As well if we call thread_get_effective_priority(thread A).
 
+    Because lock2 is released, the effective priority falls back to Low.
 
+    The effective priority of A is now Medium so it will run and release lock1 then its priority will fall back to Low. 
 
 >> A5: (3 marks)
 >> Describe the sequence of events when lock_release() is called on a lock that 
 >> a higher-priority thread is waiting for.
+
+    Suppose we have thread A with base priority Low and thread B with base priority High. Suppose now A holds Lock1 and thread B calls lock_acquire(Lock1). 
+
+    B calls lock_acquire, which then calls sema_down. This first push thread B back into the waiter list of the 
+    semaphore and then call thread_block to block thread B.  
+
+    get_lock_priority() first finds the max_priority_thread in its semaphore.waiters,
+    and get the effective priority of the max_priority_thread.
+    Here thread B is in the waiters and it is the max_priority_thread. Since B is not holding any locks, 
+    (it is trying to acquire lock1), the effective priority is equal to its base priority.
+    Hence the 'lock priority' is High now. And through all the function calls, thread A has High priority. 
+
+    In thread_block, we call schedule() , where the next thread to run is determined by the function
+    next_thread_to_run. This function use list_max to find the max priority thread to run.
+    list_max use list_less_func (here is less_thread_effective_priority).
+
+    less_thread_effective_priority compare the effective priority of two threads by 
+    the function thread_get_effective_priority().
+
+    If the thread does not acquire any lock then return its own priority 
+    else obtain the lock with the highest lock_priority to compare with 
+    thread priority and return the larger one.
+
+    As well if we call thread_get_effective_priority(thread A).
+
+    Because A has high priority now, it will run and release Lock1. 
+
+    When lock_release is called, remove the lock from the list of threads that tries to acquire the lock and
+    reset the holder of the lock to null. The it calls sema_up to the semaphore of the current lock. 
+
+    Because Lock1 is released, the effective priority of thread A falls back to Low.
+
+   
 
 ---- SYNCHRONIZATION ----
 
@@ -208,11 +260,25 @@ and push back into the waiter list of the semaphore.
 >> potentially change during the computation?
 >> Can you use a lock to avoid the race?
 
+    When thread_set_priority is called it store the priority of the current thread in an int called 
+    old_priority. Also, it compares the old_priority to new_priority to check if the current thread 
+    still has the highest priority. If not then thread_yield is called for the scheduler to reschedule
+    all the threads. 
+
+    Our implementation avoid race condition when calling thread_yield(). Every time thread_yield is called, we first disable 
+    all the interrupts and then use a less function to reorder the priority of all threads in the ready list. This prevents 
+    a race condition to happen. 
+
+    No. If we use a lock in thread_set_priority to avoid race condition. Then when a main thread tries to change its own priority, 
+    it will be bloked and cause deadlock. 
+
 ---- RATIONALE ----
 
 >> A7: (3 marks)
 >> Why did you choose this design?  
 >> In what ways is it superior to another design you considered?
+
+
 
               ADVANCED SCHEDULER
               ==================
@@ -223,6 +289,37 @@ and push back into the waiter list of the semaphore.
 >> Copy here the declaration of each new or changed `struct' or `struct' member,
 >> global or static variable, `typedef', or enumeration. 
 >> Identify the purpose of each in roughly 25 words.
+
+Added to struct thread:
+
+    /* used to store the locks that the thread holds, member for implementing
+    thread_get_effective_priority and lock_acquire. */
+    struct list list_of_locks;
+
+    /* to store the value of recent_cpu for calculating priority. */
+    fixed_point_t recent_cpu;          
+
+
+Added to struct lock:
+
+    /* used in struct thread member list_of_locks to store locks acquired. */
+    struct list_elem elem;      
+
+Added to struct semaphore_elem:
+
+    /* used store the thread which wait for the conditional. */
+    struct thread *holder;
+
+Created a new file fixed-point.h to store the fixed-point arithmetic operations: 
+    
+    /* define a int32_t for the later implementation of struct thread and recent_cpu */
+    typedef int32_t fixed_point_t;
+
+Added to thread.c as global varible: 
+
+    /* used in thread_tick_mlfqs to check the load_avg for every 100 ticks*/
+    static inline void update_load_avg (void);
+
 
 ---- ALGORITHMS ----
 
@@ -235,24 +332,26 @@ and push back into the waiter list of the semaphore.
 timer  recent_cpu    priority   thread
 ticks   A   B   C   A   B   C   to run
 -----  --  --  --  --  --  --   ------
- 0
- 4
- 8
-12
-16
-20
-24
-28
-32
-36
+ 0     0   0   0   63  61  59   A   
+ 4     4   0   0   62  61  59   A
+ 8     8   0   0   61  61  59   B
+12     8   4   0   61  60  59   A 
+16     12  4   0   60  60  59   B
+20     12  8   0   60  59  59   A
+24     16  8   0   59  59  59   C
+28     16  8   4   59  59  58   B 
+32     16 12   4   59  58  58   A 
+36     20 12   4   58  58  58   C 
 
 >> B3: (2 marks) 
 >> Did any ambiguities in the scheduler specification make values in the table 
 >> uncertain? 
 >> If so, what rule did you use to resolve them?
+FIFO
 
 ---- RATIONALE ----
 
 >> B4: (3 marks)
 >> Briefly critique your design, pointing out advantages and disadvantages in 
 >> your design choices.
+Very good
