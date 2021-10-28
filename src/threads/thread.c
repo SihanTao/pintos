@@ -188,19 +188,28 @@ static void
 thread_tick_mlfqs(struct thread *t)
 {
   int slot = timer_ticks () % TIME_SLICE;
-  
-  if (t != idle_thread){
-    t->recent_cpu = x_add_n (t->recent_cpu, 1);
-    threads_run_in_time_slice[slot] = t;
-  }
 
-    
-  if (timer_ticks () % TIMER_FREQ == 0) {
+  threads_run_in_time_slice[slot] = t;
+
+  // Update recent_cpu for current thread every tick
+  if (t != idle_thread)
+    t->recent_cpu = x_add_n (t->recent_cpu, 1);
+
+  
+  if (timer_ticks () % TIMER_FREQ == 0)
+  {  
+    // Update load_avg, recent_cpu, and thread priority every second
     update_load_avg();
     thread_foreach (update_recent_cpu_and_priority, NULL);
-  } else if (slot == 0) {
+  }
+  else if (slot == 0)
+  {  
+    // Update thread priority every 4th ticks
     for (int i = 0; i < TIME_SLICE; i++) {
-      update_mlfqs_priority (threads_run_in_time_slice[i], NULL);
+      struct thread *t = threads_run_in_time_slice[i];
+      if (!is_thread (t) || t == idle_thread)
+	continue;
+      update_mlfqs_priority (t, NULL);
     }
   }
 }
@@ -307,29 +316,28 @@ void
 thread_unblock (struct thread *t) 
 {
   enum intr_level old_level;
-
+  
   ASSERT (is_thread (t));
-
+  
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-
+  
   struct thread * cur = thread_current();
   
   if (thread_mlfqs) {
     assign_thread_queue (t);
-    t->status = THREAD_READY;
-    if (t->priority > cur->priority && cur != idle_thread)
-      intr_context () ? intr_yield_on_return () : thread_yield ();
   } else {
     list_push_back (&ready_list, &t->elem);
-    t->status = THREAD_READY;
-    if ((thread_get_effective_priority (t) > thread_get_effective_priority (cur))
-	&& cur != idle_thread)
-      {
-	thread_yield();
-      }
   }
-
+  
+  t->status = THREAD_READY;
+  if (thread_mlfqs) { 
+    if (t->priority > cur->priority && cur != idle_thread) // if BSD get priority, else get cached_priority
+      intr_context () ? intr_yield_on_return () : thread_yield ();
+  } else {
+    if (thread_get_effective_priority(t) > thread_get_effective_priority(cur) && cur != idle_thread) // if BSD get priority, else get cached_priority
+      intr_context () ? intr_yield_on_return () : thread_yield ();
+  }
 
   intr_set_level (old_level);
 }
@@ -438,7 +446,9 @@ thread_set_priority (int new_priority)
   struct thread * cur = thread_current();
   int old_priority = cur->priority;
   cur->priority = new_priority;
+  enum intr_level old_level = intr_disable ();
   cur->cached_priority = thread_get_effective_priority (cur);
+  intr_set_level (old_level);
   if (old_priority > new_priority){
     thread_yield();
   }
@@ -745,6 +755,8 @@ static bool less_lock_priority (const struct list_elem * a, const struct list_el
 
 int thread_get_effective_priority(struct thread * t)
 {
+  ASSERT (t != NULL);
+  ASSERT (intr_get_level () == INTR_OFF);
   if (list_empty(&t->list_of_locks))
     return t->priority;
   struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, less_lock_priority, NULL),
