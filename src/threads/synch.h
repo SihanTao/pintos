@@ -24,7 +24,13 @@ struct lock
     struct thread *holder;      /* Thread holding lock (for debugging). */
     struct semaphore semaphore; /* Binary semaphore controlling access. */
     struct list_elem elem;
-    int cached_priority; /* Cached priority of the lock*/
+    /*
+      invariant : cached_priority = 
+        list_max_priority( semaphore->waiters )
+      i.e. cached priority is changed when ever a element in waiter list is changed
+     */
+    int cached_priority; 
+
   };
 
 void lock_init (struct lock *);

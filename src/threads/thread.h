@@ -89,13 +89,20 @@ struct thread
   char name[16];             /* Name (for debugging purposes). */
   uint8_t *stack;            /* Saved stack pointer. */
   int priority;              /* Priority. */
-  int cached_eff_priority;   /* Cached Effective Priority*/
+   /*
+      invariant : cached eff priority = 
+         max(priority, list_max_priority(list_of_lock->lock_priority))
+      i.e. cached eff priority is changed when priority is changed or
+         any lock priority is changed
+         this could only happen in lock acquire, lock release, set priority
+   */
+  int cached_eff_priority;   
+
   struct list list_of_locks; /* To store the locks that the thread holds. */
   struct lock *lock_waiting; /* Lock waiting for.*/
   struct list_elem allelem;  /* List element for all threads list. */
   int nice;                  /* Niceness. */
   fixed_point_t recent_cpu;  /* Recent_cpu of type int32_t. */
-  struct lock thread_lock; /*lock protecting thread*/
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */

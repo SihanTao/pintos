@@ -12,9 +12,11 @@ static struct list ready_queue[64];
 // invariant : highest ready priority === max(priority(ready_queue)) 
 //                    if      cache n ready thread >= 0
 //                    else    0
+// pre : disable intr || lock ready_list
 static int cache_highest_ready_priority; 
 
 // invariant : cache n ready thread === size(ready_queue)
+// // pre : disable intr || lock ready_list
 static int cache_n_ready_thread;
 
 /*macro-scopic :
