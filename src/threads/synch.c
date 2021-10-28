@@ -103,8 +103,10 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
-/* Up or "V" operation on a semaphore.  Increments SEMA's value
-   and wakes up one thread of those waiting for SEMA, if any.
+/* 1. The highest prioritized thread in sema's waiter list is put to ready list.
+
+   2. If the recent woke up thread has higher priority than the running thread,
+   switch to the new woke up thread.
 
    This function may be called from an interrupt handler. */
 void
@@ -119,11 +121,13 @@ sema_up (struct semaphore *sema)
 
   if (!list_empty (&sema->waiters)) 
   {
+    // the highest prioritized thread in sema's waiter list is put in ready list;
     struct list_elem* e = list_max (&sema->waiters, less_thread_effective_priority, NULL);
     list_remove (e);
+    // If the recent woke up thread has higher priority than the running thread,
+    // switch to the new woke up thread.
     thread_unblock (list_entry (e, struct thread, elem));
   }
-
 
   intr_set_level (old_level);
 }
@@ -189,8 +193,9 @@ lock_init (struct lock *lock)
   sema_init (&lock->semaphore, 1);
 }
 
-/* Acquires LOCK, sleeping until it becomes available if
-   necessary.  The lock must not already be held by the current
+/*
+
+  The lock must not already be held by the current
    thread.
 
    This function may sleep, so it must not be called within an
@@ -204,9 +209,24 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  struct thread * cur = thread_current ();
+
+  enum intr_level old_level = intr_disable ();
+  if (lock->holder != NULL)
+  {
+    cur->lock_waiting = lock;
+    if (cur->cached_eff_priority > lock->cached_priority)
+      donate_lock_priority (lock, cur->cached_eff_priority);
+  }
+
   sema_down (&lock->semaphore);
+
+  lock->cached_priority = recalc_lock_cached_priority(lock);
   lock->holder = thread_current ();
+  cur->lock_waiting = NULL;
+  cur->cached_eff_priority = max(cur->cached_eff_priority, lock->cached_priority);
   list_push_back(&lock->holder->list_of_locks, &lock->elem);
+  intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -229,7 +249,10 @@ lock_try_acquire (struct lock *lock)
   return success;
 }
 
-/* Releases LOCK, which must be owned by the current thread.
+/* When thread are waiting for a lock, the highest prioritized thread wakes up
+   first. This is achieved by calling sema up.
+
+Releases LOCK, which must be owned by the current thread.
 
    An interrupt handler cannot acquire a lock, so it does not
    make sense to try to release a lock within an interrupt
@@ -240,13 +263,17 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-
+  // Don't need to disable interrupt since nobody can change 
+  // thread->list of locks or lock holder;
   list_remove (&lock->elem);
-
-
   lock->holder = NULL;
-  sema_up (&lock->semaphore);
+  struct thread* cur = thread_current();
 
+  enum intr_level old_level = intr_disable ();
+  cur->cached_eff_priority = recalc_thread_cached_priority (cur);
+  intr_set_level (old_level);
+
+  sema_up (&lock->semaphore);
 }
 
 /* Returns true if the current thread holds LOCK, false
