@@ -16,9 +16,9 @@ typedef int32_t fp_14;
 
 #define x_sub_y(x, y) ((x) - (y))
 
-#define x_add_n(x, n) ((x) + n * _f)
+#define x_add_n(x, n) ((x) + (n) * _f)
 
-#define x_sub_n(x, n) ((x) - n * _f)
+#define x_sub_n(x, n) ((x) - (n) * _f)
 
 #define x_mul_y(x, y) (((int64_t) (x)) * (y) / _f)
 
