@@ -104,8 +104,10 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
-/* Up or "V" operation on a semaphore.  Increments SEMA's value
-   and wakes up one thread of those waiting for SEMA, if any.
+/* 1. The highest prioritized thread in sema's waiter list is put to ready list.
+
+   2. If the recent woke up thread has higher priority than the running thread,
+   switch to the new woke up thread.
 
    This function may be called from an interrupt handler. */
 void
@@ -120,14 +122,33 @@ sema_up (struct semaphore *sema)
 
   if (!list_empty (&sema->waiters)) 
   {
+    // the highest prioritized thread in sema's waiter list is put in ready list;
     struct list_elem* e = list_max (&sema->waiters, less_thread_effective_priority, NULL);
     list_remove (e);
-    thread_unblock (list_entry (e, struct thread, elem));
-  }
+    // If the recent woke up thread has higher priority than the running thread,
+    // switch to the new woke up thread.
+    struct thread * t = list_entry (e, struct thread, elem);
+    thread_unblock (t);
 
+    
+  struct thread *cur = thread_current ();
+  bool flag = thread_mlfqs ? t->priority > cur->priority : (thread_get_effective_priority (t) > thread_get_effective_priority (cur));
+
+  if (flag)
+    intr_context() ?  intr_yield_on_return() : thread_yield() ;
+  // pre of thread yield : !intr_context() but this function will not be called in intr_context
+  // given : max_priority(ready_list) <= priority (running thread)
+  // known : priority (waking thread) > priority (running thread) 
+  //                                  >= max_priority(ready_list)
+  // thus we will always get the waking thread from ready list if it is the
+  // highest prioritized thread
+  }
 
   intr_set_level (old_level);
 }
+
+
+
 
 static void sema_test_helper (void *sema_);
 

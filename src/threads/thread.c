@@ -223,7 +223,12 @@ thread_print_stats (void)
           idle_ticks, kernel_ticks, user_ticks);
 }
 
-/* Creates a new kernel thread named NAME with the given initial
+/* 1. create a thread
+
+   2. if it has a higher priority than the running thread, switch to the new 
+   created thread
+
+Creates a new kernel thread named NAME with the given initial
    PRIORITY, which executes FUNCTION passing AUX as the argument,
    and adds it to the ready queue.  Returns the thread identifier
    for the new thread, or TID_ERROR if creation fails.
@@ -280,10 +285,24 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-  intr_set_level (old_level);
 
   /* Add to run queue. */
   thread_unblock (t);
+
+  struct thread *cur = thread_current ();
+  bool flag = thread_mlfqs ? t->priority > cur->priority : (thread_get_effective_priority (t) > thread_get_effective_priority (cur));
+
+  ASSERT (!intr_context());
+  if (flag)
+    thread_yield() ;
+  // pre of thread yield : !intr_context() but this function will not be called in intr_context
+  // given : max_priority(ready_list) <= priority (running thread)
+  // known : priority (waking thread) > priority (running thread) 
+  //                                  >= max_priority(ready_list)
+  // thus we will always get the waking thread from ready list if it is the
+  // highest prioritized thread
+
+  intr_set_level (old_level);
 
   return tid;
 }
@@ -304,9 +323,10 @@ thread_block (void)
   schedule ();
 }
 
-/* Transitions a blocked thread T to the ready-to-run state.
-   This is an error if T is not blocked.  (Use thread_yield() to
-   make the running thread ready.)
+
+/* put waking thread into the ready list
+
+  warning : doesn't yield! if necessary call thread yield
 
    This function does not preempt the running thread.  This can
    be important: if the caller had disabled interrupts itself,
@@ -314,16 +334,15 @@ thread_block (void)
    update other data. */
 void
 thread_unblock (struct thread *t) 
-{
-  enum intr_level old_level;
-  
+{  
   ASSERT (is_thread (t));
   
-  old_level = intr_disable ();
+  enum intr_level old_level = intr_disable ();
+  
   ASSERT (t->status == THREAD_BLOCKED);
-  
-  struct thread * cur = thread_current();
-  
+
+  // TODO 
+  // push_ready_list(t)
   if (thread_mlfqs) {
     assign_thread_queue (t);
   } else {
@@ -331,16 +350,9 @@ thread_unblock (struct thread *t)
   }
   
   t->status = THREAD_READY;
-  if (thread_mlfqs) { 
-    if (t->priority > cur->priority && cur != idle_thread) // if BSD get priority, else get cached_priority
-      intr_context () ? intr_yield_on_return () : thread_yield ();
-  } else {
-    if (thread_get_effective_priority(t) > thread_get_effective_priority(cur) && cur != idle_thread) // if BSD get priority, else get cached_priority
-      intr_context () ? intr_yield_on_return () : thread_yield ();
-  }
 
   intr_set_level (old_level);
-}
+} 
 
 /* Returns the name of the running thread. */
 const char *
@@ -616,7 +628,12 @@ alloc_frame (struct thread *t, size_t size)
   return t->stack;
 }
 
-/* Chooses and returns the next thread to be scheduled.  Should
+/* If      there is no ready threads returns idle
+   Else    return the first highest prioritized thread in ready list
+
+   pre : intr_off
+
+Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
    empty.  (If the running thread can continue running, then it
    will be in the run queue.)  If the run queue is empty, return
@@ -624,6 +641,12 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
+  ASSERT (intr_get_level() == INTR_OFF);
+  // if (ready_threads() == 0)
+  //  return idle_thread
+  // else 
+  //  return poll_ready_list();
+
   if (thread_mlfqs ? ready_queues_empty () : list_empty (&ready_list)) {
     return idle_thread;
   } else {
@@ -704,7 +727,15 @@ thread_schedule_tail (struct thread *prev)
     }
 }
 
-/* Schedules a new process.  At entry, interrupts must be off and
+/* Find the highest prioritized thread in ready list or idle if no thread
+   in ready list, then switch to that thread if it is different.
+
+   If two threads has the same highest priority, then gives the first thread 
+   going into the ready list.
+
+   pre : intr_off
+
+  Schedules a new process.  At entry, interrupts must be off and
    the running process's state must have been changed from
    running to some other state.  This function finds another
    thread to run and switches to it.
@@ -715,7 +746,10 @@ static void
 schedule (void) 
 {
   struct thread *cur = running_thread ();
-  struct thread *next = next_thread_to_run ();
+  // Find the highest prioritized thread in ready list
+  // if empty gives the idle thread
+  // pre : intr_off
+  struct thread *next = next_thread_to_run (); 
   struct thread *prev = NULL;
 
   ASSERT (intr_get_level () == INTR_OFF);
@@ -723,7 +757,7 @@ schedule (void)
   ASSERT (is_thread (next));
 
   if (cur != next)
-    prev = switch_threads (cur, next);
+    prev = switch_threads (cur, next); // pre intr_off
   thread_schedule_tail (prev);
 }
 
