@@ -93,6 +93,7 @@ static bool ready_queues_empty(void);
 static struct list_elem *choose_thread_to_run_mlfqs (void);
 static struct list_elem *choose_thread_to_run_donation (void);
 static int highest_priority_in_ready_list(void);
+static int mlfqs_highest_priority_in_ready_queue(void);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -716,6 +717,7 @@ choose_thread_to_run_mlfqs (void)
 static int
 mlfqs_highest_priority_in_ready_queue(void)
 {
+  int i = PRI_MAX;
   while (list_size (&ready_queues[i]) == 0) 
     i--; 
   return i;
