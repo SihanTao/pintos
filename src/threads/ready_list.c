@@ -1,6 +1,7 @@
 #include "thread.h"
 #include "ready_list.h"
 #include "threads/interrupt.h"
+#include "synch.h"
 #include <list.h>
 #include <debug.h>
 
@@ -18,6 +19,8 @@ static int cache_n_ready_thread;
 
 /*macro-scopic :
     return the highest prioritized thread in the ready list
+    
+    pre : protected by ready list lock || intr_off
 
   micro-scopic :
     return the highest prioritized thread in the ready list
@@ -49,6 +52,8 @@ static struct thread * poll_ready_list(void){
 /* macro scopic:
   put one thread into ready list
 
+  pre : protected by ready list lock || intr_off
+
   micro scopic:
     Put the thread into corresponding ready queue
 
@@ -67,11 +72,13 @@ void push_ready_list(struct thread *t)
   list_push_back (ready_queue + new_t_priority, &t->elem);
 }
 
+// pre : protected by ready list lock || intr_off
 size_t size_ready_list (void)
 {
     return cache_n_ready_thread;
 }
 
+// pre : protected by ready list lock || intr_off
 int heighest_priority_in_ready_list(void)
 {
     return cache_highest_ready_priority;
@@ -81,6 +88,7 @@ void init_ready_list(void)
 {
     cache_n_ready_thread = 0;
     cache_highest_ready_priority = 0;
+    lock_init(&ready_list_lock);
     for (int i = 0; i < 64; i++)
         list_init(ready_queue + i);
 }
