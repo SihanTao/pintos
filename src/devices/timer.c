@@ -214,13 +214,13 @@ timer_print_stats (void)
  *
  */
 static void try_wake_up_threads() {
-  struct alarm_clock_helper *sleepingThread;
+  struct alarm_clock_helper *alarm_clock_helper;
   struct list_elem *e;
   while (!list_empty(&sleeping_threads)) {
     e = list_pop_front(&sleeping_threads);
-    sleepingThread = list_entry(e, struct alarm_clock_helper, elem);
-    if (sleepingThread->wake_up_ticks <= timer_ticks()) {
-      sema_up(sleepingThread->timer_sema);
+    alarm_clock_helper = list_entry(e, struct alarm_clock_helper, elem);
+    if (alarm_clock_helper->wake_up_ticks <= timer_ticks()) {
+      sema_up(alarm_clock_helper->timer_sema);
     } else {
       list_push_front(&sleeping_threads, e);
       break;
