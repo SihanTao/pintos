@@ -6,14 +6,11 @@ typedef int32_t fp_14;
 #define _f 0x4000
 #define _fhalf 0x2000
 
-#define _59div60 16110
-#define _1div60 273
+#define ntofp(n) ((n) * _f)
 
-#define ntox(n) ((n) * _f)
+#define fpton_z(x) ((x) / _f)
 
-#define xton_z(x) ((x) / _f)
-
-#define xton_n(x) ((x) > 0 ? ((x) + _fhalf) / _f : ((x) - _fhalf) / _f )
+#define fpton_n(x) ((x) > 0 ? ((x) + _fhalf) / _f : ((x) - _fhalf) / _f )
 
 #define x_add_y(x, y) ((x) + (y))
 

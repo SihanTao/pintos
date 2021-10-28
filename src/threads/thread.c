@@ -93,6 +93,7 @@ static bool ready_queues_empty(void);
 static struct list_elem *choose_thread_to_run_mlfqs (void);
 static struct list_elem *choose_thread_to_run_donation (void);
 static int highest_priority_in_ready_list(void);
+static int mlfqs_highest_priority_in_ready_queue(void);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -117,7 +118,7 @@ thread_init (void)
   list_init (&all_list);
 
   if (thread_mlfqs) {
-    load_avg = ntox (0);
+    load_avg = ntofp (0);
     for (int i = 0; i < PRI_COUNT; i++) {
       list_init (&ready_queues[i]);
     }
@@ -490,9 +491,9 @@ thread_set_priority (int new_priority)
 
   enum intr_level old_level = intr_disable ();
 
+  cur->cached_priority = recalc_cached_thread_priority(cur);
   // because thread might be yielded, thus we cannot use a lock
   // to protect the ready list
-  cur->cached_priority = recalc_cached_thread_priority(cur);
   if (highest_priority_in_ready_list() > cur->cached_priority)
     intr_context() ? intr_yield_on_return() : thread_yield();
 
@@ -508,43 +509,50 @@ thread_get_priority (void)
   return thread_current()->cached_priority;
 }
 
-/* Sets the current thread's nice value to NICE. */
+/* If the running thread no longer has the highest priority, yields. 
+
+Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 
 {
   ASSERT (nice >= -20 && nice <= 20);
-  
+  ASSERT (!intr_context());
+
   struct thread *t = thread_current ();
-  enum intr_level old_level = intr_disable();
-  int old_priority = t->priority;
   t->nice = nice;
-  // mlfqs_update_recent_cpu (t, NULL);
   t->priority = mlfqs_calc_priority (t);
-  if(old_priority > t->priority) {
-    thread_yield ();
-  }
+
+  enum intr_level old_level = intr_disable();
+
+  // because can only set the niceness of running thread
+  // thus don't need to reassign ready queues
+  // because thread yield might be called, cannot use locks, thus disable intr
+  // Spec is ambiguous here, this is how we interpreted
+  if(mlfqs_highest_priority_in_ready_queue() > t->priority) 
+    thread_yield (); // pre : !intr context
+  
   intr_set_level (old_level);
 }
 
-/* Returns the current thread's nice value. */
+/*Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  return thread_current ()->nice;;
+  return thread_current ()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  return xton_n (x_mul_n (load_avg, 100));
+  return fpton_n (x_mul_n (load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  return xton_n (x_mul_n (thread_current()->recent_cpu, 100));
+  return fpton_n (x_mul_n (thread_current()->recent_cpu, 100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -702,12 +710,20 @@ choose_thread_to_run_mlfqs (void)
   ASSERT (!ready_queues_empty ());
   ASSERT (intr_get_level () == INTR_OFF);
   
-  int i = PRI_MAX;
-  while (list_size (&ready_queues[i]) == 0) {
-    i--;
-  }
+  int i = mlfqs_highest_priority_in_ready_queue();
   ready_queues_size--;
-  return list_front (&ready_queues[i]);
+  return list_front (ready_queues + i);
+}
+
+static int
+mlfqs_highest_priority_in_ready_queue(void)
+{
+  if (threads_ready() == 0)
+    return 0;
+  int i = PRI_MAX;
+  while (list_size (&ready_queues[i]) == 0) 
+    i--; 
+  return i;
 }
 
 inline static struct list_elem *
@@ -842,7 +858,7 @@ less_thread_effective_priority (const struct list_elem * a, const struct list_el
 // pre : intr_context
 static int
 mlfqs_calc_priority(struct thread *t) {
-  int raw = PRI_MAX - xton_n ((x_div_n (t->recent_cpu, 4))) - (t->nice * 2);
+  int raw = PRI_MAX - fpton_n ((x_div_n (t->recent_cpu, 4))) - (t->nice * 2);
   return bound(raw, PRI_MIN, PRI_MAX);
 }
 
@@ -863,8 +879,8 @@ mlfqs_update_load_avg(void) {
   ASSERT (timer_ticks () % TIMER_FREQ == 0);
   ASSERT (intr_context());
   
-  fp_14 fst = x_mul_y (x_div_n (ntox (59), 60), load_avg);
-  fp_14 snd = x_mul_n (x_div_n (ntox (1), 60), ready_queues_size + (thread_current () != idle_thread));
+  fp_14 fst = x_mul_y (x_div_n (ntofp (59), 60), load_avg);
+  fp_14 snd = x_mul_n (x_div_n (ntofp (1), 60), ready_queues_size + (thread_current () != idle_thread));
   load_avg = x_add_y (fst, snd);
 }
 
