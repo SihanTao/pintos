@@ -452,6 +452,7 @@ less_sema_priority(const struct list_elem * a, const struct list_elem * b, void 
 
 }
 
+// pre : intr off
 static void
 donate_lock_priority(struct lock *l, int new_priority) {
   l->cached_priority = new_priority;
@@ -459,6 +460,7 @@ donate_lock_priority(struct lock *l, int new_priority) {
     donate_thread_priority (l->holder, new_priority);
 }
 
+// pre : intr off
 static void
 donate_thread_priority(struct thread *t, int new_priority) {
   t->cached_priority = new_priority;
@@ -466,6 +468,7 @@ donate_thread_priority(struct thread *t, int new_priority) {
     donate_lock_priority (t->lock_waiting, new_priority);
 }
 
+// pre : intr off
 static int
 recalc_cached_lock_priority(struct lock * lock)
 {

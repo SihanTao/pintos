@@ -480,7 +480,9 @@ thread_set_priority (int new_priority)
   intr_set_level (old_level);
 }
 
-/* Returns the current thread's priority. */
+/* 
+pre : intr off
+Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
@@ -661,7 +663,7 @@ next_thread_to_run (void)
   // else 
   //  return poll_ready_list();
 
-  if (thread_mlfqs ? ready_queues_empty () : list_empty (&ready_list)) {
+  if (threads_ready() == 0) { //pre : intr off
     return idle_thread;
   } else {
     struct list_elem *e = thread_mlfqs ? choose_thread_to_run_mlfqs() : choose_thread_to_run_donation();
@@ -689,7 +691,7 @@ choose_thread_to_run_mlfqs (void)
   return list_front (&ready_queues[i]);
 }
 
-static struct list_elem *
+inline static struct list_elem *
 choose_thread_to_run_donation (void)
 {
   return list_max (&ready_list, less_thread_effective_priority, NULL);
@@ -825,25 +827,29 @@ calculate_mlfqs_priority(struct thread *t) {
   return bound(raw, PRI_MIN, PRI_MAX);
 }
 
- 
+// pre : intr_context
 static void
 update_recent_cpu(struct thread *t, void *aux UNUSED) {
   ASSERT (timer_ticks () % TIMER_FREQ == 0);
+  ASSERT (intr_context());
   
   fp_14 k = x_mul_n(load_avg, 2);
   fp_14 coeff = x_div_y (k, x_add_n (k, 1));
   t->recent_cpu = x_add_n (x_mul_y (coeff, t->recent_cpu), t->nice);
 }
 
+// pre : intr_context
 static void
 update_load_avg(void) {
   ASSERT (timer_ticks () % TIMER_FREQ == 0);
+  ASSERT (intr_context());
   
   fp_14 fst = x_mul_y (x_div_n (ntox (59), 60), load_avg);
   fp_14 snd = x_mul_n (x_div_n (ntox (1), 60), ready_queues_size + (thread_current () != idle_thread));
   load_avg = x_add_y (fst, snd);
 }
 
+// pre : intr_context
 /* update mlfqs priortiy in t, reassign queue if ready_thread_priority changed */
 static void
 update_mlfqs_priority(struct thread *t, void *aux UNUSED)
@@ -858,6 +864,7 @@ update_mlfqs_priority(struct thread *t, void *aux UNUSED)
   }
 }
 
+// pre : intr_context
 static void
 update_recent_cpu_and_priority(struct thread *t, void *aux UNUSED)
 {
@@ -865,7 +872,7 @@ update_recent_cpu_and_priority(struct thread *t, void *aux UNUSED)
   update_mlfqs_priority (t, aux);
 }
   
-  
+// pre : intr off || ready list lock 
 /* Update priority of thread and assign it to one of the 64 ready queues */
 static void
 assign_thread_queue(struct thread *t)
