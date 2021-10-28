@@ -92,6 +92,7 @@ static void assign_thread_queue(struct thread *t);
 static bool ready_queues_empty(void);
 static struct list_elem *choose_thread_to_run_mlfqs (void);
 static struct list_elem *choose_thread_to_run_donation (void);
+static int highest_priority_in_ready_list(void);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -449,21 +450,29 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* pre : no effect in mlfqs
+
+  If lowering its priority such that highest priority in ready list > new priority
+  switch to the first highest prioritized thread to run
+
+Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
 {
   if (thread_mlfqs)
     return;
   struct thread * cur = thread_current();
-  int old_priority = cur->priority;
   cur->priority = new_priority;
+
   enum intr_level old_level = intr_disable ();
-  cur->cached_priority = thread_get_effective_priority (cur);
+
+  // because thread might be yielded, thus we cannot use a lock
+  // to protect the ready list
+  cur->cached_priority = recalc_cached_thread_priority(cur);
+  if (highest_priority_in_ready_list() > cur->cached_priority)
+    intr_context() ? intr_yield_on_return() : thread_yield();
+
   intr_set_level (old_level);
-  if (old_priority > new_priority){
-    thread_yield();
-  }
 }
 
 /* Returns the current thread's priority. */
@@ -870,4 +879,26 @@ assign_thread_queue(struct thread *t)
   list_push_back (&ready_queues[mlfqs_priority], &t->elem);
   ready_queues_size ++;
   intr_set_level (old_level);
+}
+
+static int highest_priority_in_ready_list()
+{
+  if (threads_ready() == 0)
+    return 0;
+  struct list_elem * e = list_max(&ready_list, less_thread_effective_priority, NULL);
+  return list_entry(e, struct thread, elem)->cached_priority;
+}
+
+// pre : intr_off
+int recalc_cached_thread_priority(struct thread * t)
+{
+  ASSERT (t != NULL);
+  ASSERT (intr_get_level () == INTR_OFF);
+  if (list_empty(&t->list_of_locks))
+    return t->priority;
+  struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, less_lock_priority, NULL),
+          struct lock, elem);
+  int lock_priority = max_priority_lock->cached_priority;
+  return max(t->priority, lock_priority);
+
 }

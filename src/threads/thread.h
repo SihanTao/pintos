@@ -147,4 +147,5 @@ int thread_get_load_avg (void);
 
 int thread_get_effective_priority (struct thread * t);
 bool less_thread_effective_priority (const struct list_elem * a, const struct list_elem * b, void * aux UNUSED);
+int recalc_cached_thread_priority(struct thread * t);
 #endif /* threads/thread.h */

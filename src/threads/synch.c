@@ -280,7 +280,7 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   struct thread *cur = thread_current ();
   enum intr_level old_level = intr_disable ();
-  cur->cached_priority = thread_get_effective_priority (cur);
+  cur->cached_priority = recalc_cached_thread_priority (cur);
   intr_set_level (old_level);
   sema_up (&lock->semaphore);
   
