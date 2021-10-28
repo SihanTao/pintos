@@ -32,8 +32,13 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-static void update_lock_cached_priority(struct lock *l, int new_priority);
-static void update_thread_cached_priority(struct thread *t, int new_priority);
+#define max(x, y) ((x) > (y) ? (x) : (y))
+#define min(x, y) ((x) < (y) ? (x) : (y))
+#define bound(x, low, high) (max(min((x), (high)), (low)))
+
+static void donate_lock_priority(struct lock *l, int new_priority);
+static void donate_thread_priority(struct thread *t, int new_priority);
+static int recalc_cached_lock_priority(struct lock * lock);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -212,7 +217,20 @@ lock_init (struct lock *lock)
   lock->cached_priority = 0;
 }
 
-/* Acquires LOCK, sleeping until it becomes available if
+/*  if lock holder is held by other threads then put the thread into lock's
+   waiter list; donate priority to the lock and the threads that holding that
+   lock layer by layer
+
+   block the thread if other thread is holding the lock
+
+   if the thread holds the lock
+   since the thread might be removed from the waiter list
+   recalc lock cached priority
+
+  pre : !intr_context()
+
+
+Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
 
@@ -230,18 +248,32 @@ lock_acquire (struct lock *lock)
   struct thread *cur = thread_current ();
 
   enum intr_level old_level = intr_disable ();
+  // must disable intr because while donating priority
+  // another thread should not acquire the lock
+  // cannot use a lock to protect a lock (recurr ) //TODO : use a sema
   if (lock->holder != NULL) {
     cur->lock_waiting = lock;
     if (cur->cached_priority > lock->cached_priority)
-      update_lock_cached_priority (lock, cur->cached_priority);
+      donate_lock_priority (lock, cur->cached_priority);
   }
+ 
+  // block the thread if the lock is held by other threads else
+  // hold the lock by sema_down
+
+  // inside sema down, (intr_level === INTR_OFF)
+  // so that the thread is correctly added to the waiter list
+  // lock->cached_priority === list_max_priority(waiters)
   sema_down (&lock->semaphore);
-  
+  // after sema down intr_level === INTR_OFF
+
+  // if the thread holds the lock
+  // since the thread might be removed from the waiter list
+  // recalc lock cached priority
   cur->lock_waiting = NULL;
-  lock->cached_priority = get_lock_priority (lock);
+  lock->cached_priority = recalc_cached_lock_priority (lock);
   lock->holder = thread_current ();
   list_push_back(&lock->holder->list_of_locks, &lock->elem);
-  cur->cached_priority = thread_get_effective_priority (cur);
+  cur->cached_priority = max(cur->cached_priority, lock->cached_priority);
   intr_set_level (old_level);
 }
 
@@ -276,14 +308,15 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  list_remove (&lock->elem); 
-  lock->holder = NULL;
+  list_remove (&lock->elem); // this is fine since only the hold can remove 
+                             // the lock from acquired lock list
+  lock->holder = NULL;       // also only the holder can change this
   struct thread *cur = thread_current ();
+
   enum intr_level old_level = intr_disable ();
   cur->cached_priority = recalc_cached_thread_priority (cur);
-  intr_set_level (old_level);
   sema_up (&lock->semaphore);
-  
+  intr_set_level (old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -420,15 +453,28 @@ less_sema_priority(const struct list_elem * a, const struct list_elem * b, void 
 }
 
 static void
-update_lock_cached_priority(struct lock *l, int new_priority) {
+donate_lock_priority(struct lock *l, int new_priority) {
   l->cached_priority = new_priority;
   if (new_priority > l->holder->cached_priority)
-    update_thread_cached_priority (l->holder, new_priority);
+    donate_thread_priority (l->holder, new_priority);
 }
 
 static void
-update_thread_cached_priority(struct thread *t, int new_priority) {
+donate_thread_priority(struct thread *t, int new_priority) {
   t->cached_priority = new_priority;
   if (t->lock_waiting != NULL && new_priority > t->lock_waiting->cached_priority)
-    update_lock_cached_priority (t->lock_waiting, new_priority);
+    donate_lock_priority (t->lock_waiting, new_priority);
+}
+
+static int
+recalc_cached_lock_priority(struct lock * lock)
+{
+  ASSERT (lock != NULL);
+  ASSERT (intr_get_level () == INTR_OFF);
+  
+  if (list_empty(&lock->semaphore.waiters))
+    return 0;
+  struct list_elem * e = list_max (&lock->semaphore.waiters, less_thread_effective_priority, NULL);
+  struct thread * max_priority_thread = list_entry(e, struct thread, elem);
+  return max_priority_thread->cached_priority;
 }
