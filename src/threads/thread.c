@@ -508,29 +508,35 @@ thread_get_priority (void)
   return thread_current()->cached_priority;
 }
 
-/* Sets the current thread's nice value to NICE. */
+/* If the running thread no longer has the highest priority, yields. 
+
+Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 
 {
   ASSERT (nice >= -20 && nice <= 20);
-  
+  ASSERT (!intr_context());
+
   struct thread *t = thread_current ();
-  enum intr_level old_level = intr_disable();
-  int old_priority = t->priority;
   t->nice = nice;
-  // mlfqs_update_recent_cpu (t, NULL);
   t->priority = mlfqs_calc_priority (t);
-  if(old_priority > t->priority) {
-    thread_yield ();
-  }
+
+  enum intr_level old_level = intr_disable();
+
+  // because can only set the niceness of running thread
+  // thus don't need to reassign ready queues
+  // because thread yield might be called, cannot use locks, thus disable intr
+  if(mlfqs_highest_priority_in_ready_queue() > t->priority) 
+    thread_yield (); // pre : !intr context
+  
   intr_set_level (old_level);
 }
 
-/* Returns the current thread's nice value. */
+/*Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  return thread_current ()->nice;;
+  return thread_current ()->nice;
 }
 
 /* Returns 100 times the system load average. */
@@ -702,12 +708,17 @@ choose_thread_to_run_mlfqs (void)
   ASSERT (!ready_queues_empty ());
   ASSERT (intr_get_level () == INTR_OFF);
   
-  int i = PRI_MAX;
-  while (list_size (&ready_queues[i]) == 0) {
-    i--;
-  }
+  int i = mlfqs_highest_priority_in_ready_queue();
   ready_queues_size--;
-  return list_front (&ready_queues[i]);
+  return list_front (ready_queues + i);
+}
+
+static int
+mlfqs_highest_priority_in_ready_queue(void)
+{
+  while (list_size (&ready_queues[i]) == 0) 
+    i--; 
+  return i;
 }
 
 inline static struct list_elem *
