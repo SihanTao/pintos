@@ -291,7 +291,7 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   struct thread *cur = thread_current ();
-  bool flag = thread_mlfqs ? t->priority > cur->priority : (thread_get_effective_priority (t) > thread_get_effective_priority (cur));
+  bool flag = thread_mlfqs ? t->priority > cur->priority : (t->cached_priority >  cur->cached_priority);
 
   ASSERT (!intr_context());
   if (flag)
@@ -342,8 +342,6 @@ thread_unblock (struct thread *t)
   
   ASSERT (t->status == THREAD_BLOCKED);
 
-  // TODO 
-  // push_ready_list(t)
   if (thread_mlfqs) {
     assign_thread_queue (t);
   } else {
@@ -409,7 +407,15 @@ thread_exit (void)
   NOT_REACHED ();
 }
 
-/* Yields the CPU.  The current thread is not put to sleep and
+/* Put the current thread into ready list (if current is not idle), and then 
+  get the first highest priorised thread from ready list to run.
+  
+  Set the status of current thread to ready.
+
+  warning : if current thread is idle, you can still call it
+
+  pre : !intr_context()
+ Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
 thread_yield (void) 
@@ -421,17 +427,16 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-  {
-    if (thread_mlfqs) {
-      assign_thread_queue (cur);
-    } else {
-      list_insert_ordered (&ready_list, &cur->elem, less_thread_effective_priority, NULL);
-    }
-  }
+    thread_mlfqs ?  assign_thread_queue (cur) : list_push_back(&ready_list, &cur->elem);
+
   cur->status = THREAD_READY;
-  schedule ();
+  // switch to the first highest priorised thread from ready list
+  // if there is no thread in ready list, switch to idle
+  schedule (); // pre : intr_off
   intr_set_level (old_level);
 }
+
+
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
@@ -788,29 +793,22 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
+// pre : disable intr
 static bool less_lock_priority (const struct list_elem * a, const struct list_elem * b, void * aux UNUSED)
 {
+  ASSERT (intr_get_level () == INTR_OFF);
   struct lock * lock1 = list_entry(a, struct lock, elem);
   struct lock * lock2 = list_entry(b, struct lock, elem);
   
   return lock1->cached_priority < lock2->cached_priority;
 }
 
-int thread_get_effective_priority(struct thread * t)
-{
-  ASSERT (t != NULL);
-  ASSERT (intr_get_level () == INTR_OFF);
-  if (list_empty(&t->list_of_locks))
-    return t->priority;
-  struct lock * max_priority_lock = list_entry (list_max(&t->list_of_locks, less_lock_priority, NULL),
-          struct lock, elem);
-  int lock_priority = max_priority_lock->cached_priority;
-  return t->priority > lock_priority ? t->priority : lock_priority;
-}
 
+// pre : disable intr
 bool
 less_thread_effective_priority (const struct list_elem * a, const struct list_elem * b, void * aux UNUSED)
 {
+  ASSERT (intr_get_level () == INTR_OFF);
   struct thread * t1 = list_entry (a, struct thread, elem);
   struct thread * t2 = list_entry (b, struct thread, elem);
 
@@ -881,6 +879,7 @@ assign_thread_queue(struct thread *t)
   intr_set_level (old_level);
 }
 
+// pre : ready_list lock || disable intr
 static int highest_priority_in_ready_list()
 {
   if (threads_ready() == 0)

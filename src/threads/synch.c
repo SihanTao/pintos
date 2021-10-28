@@ -137,7 +137,7 @@ sema_up (struct semaphore *sema)
 
     
   struct thread *cur = thread_current ();
-  bool flag = thread_mlfqs ? t->priority > cur->priority : (thread_get_effective_priority (t) > thread_get_effective_priority (cur));
+  bool flag = thread_mlfqs ? t->priority > cur->priority : (t->cached_priority > cur->cached_priority);
 
   if (flag)
     intr_context() ?  intr_yield_on_return() : thread_yield() ;
@@ -448,7 +448,7 @@ less_sema_priority(const struct list_elem * a, const struct list_elem * b, void 
   struct semaphore_elem * s1 = list_entry (a, struct semaphore_elem, elem);
   struct semaphore_elem * s2 = list_entry (b, struct semaphore_elem, elem);
 
-  return thread_get_effective_priority(s1->holder) < thread_get_effective_priority(s2->holder);
+  return s1->holder->cached_priority < s2->holder->cached_priority;
 
 }
 
