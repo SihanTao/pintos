@@ -1,6 +1,7 @@
 #ifndef THREADS_FIXED_POINT_H
 #define THREADS_FIXED_POINT_H
 
+#include <stdint.h>
 typedef int32_t fp_14;
 
 #define _f 0x4000
