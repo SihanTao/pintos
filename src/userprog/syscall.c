@@ -15,8 +15,13 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  printf ("system call!\n");
+  void * stack_ptr = f->esp;
+
+  // if the command is exit
+  check_safe_memory_access(stack_ptr);
+  check_safe_memory_access(stack_ptr + 1);
   thread_exit ();
+
 }
 
 /*
