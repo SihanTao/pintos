@@ -17,9 +17,14 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   void * stack_ptr = f->esp;
 
+  int syscall_number = *(int*) stack_ptr;
+
+  printf("*esp = %d\n", syscall_number);
+
   // if the command is exit
   check_safe_memory_access(stack_ptr);
   check_safe_memory_access(stack_ptr + 1);
+  printf("%s: exit(%d)\n", thread_current()->name, 0);
   thread_exit ();
 
 }
@@ -46,3 +51,4 @@ void* check_safe_memory_access(const void* vaddr)
   return kaddr;
   
 }
+

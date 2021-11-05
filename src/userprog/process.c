@@ -88,6 +88,9 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  for(;;)
+  ;
+    // printf("process_wait:...\n"); //pass
   return -1;
 }
 
