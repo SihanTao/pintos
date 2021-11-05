@@ -525,12 +525,12 @@ thread_set_nice (int nice UNUSED)
 {
   ASSERT (nice >= -20 && nice <= 20);
   ASSERT (!intr_context ());
-
   struct thread *t = thread_current ();
-  t->nice = nice;
-  t->priority = mlfqs_calc_priority (t);
 
   enum intr_level old_level = intr_disable ();
+
+  t->nice = nice;
+  t->priority = mlfqs_calc_priority (t);
 
   // because can only set the niceness of running thread
   // thus don't need to reassign ready queues
