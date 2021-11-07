@@ -5,10 +5,12 @@
    Just invokes a system call that shuts down the OS. */
 
 #include <syscall.h>
+#include <stdio.h>
 
 int
 main (void)
 {
+  printf("inside halt\n");
   halt ();
   /* not reached */
 }
