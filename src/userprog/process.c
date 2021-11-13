@@ -31,19 +31,17 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
-  /* Argument Passing */
-  char f_name[strlen(file_name) + 1];
-
-  char * token, *save_ptr;
-  token = strtok_r (file_name, " ", &save_ptr);
-  strlcpy(f_name, token, PGSIZE);
-
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+
+  /* Argument Passing */
+  /* Here f_name is the name of the command */
+  char * f_name, *save_ptr;
+  f_name = strtok_r (file_name, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (f_name, PRI_DEFAULT, start_process, fn_copy);
