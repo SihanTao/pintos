@@ -10,7 +10,7 @@
 int
 main (void)
 {
-  printf("inside halt\n");
+  printf("%s\n", "inside halt\n");
   halt ();
   /* not reached */
 }

@@ -1,3 +1,4 @@
+make
 cd ../examples
 make
 cd ../userprog/build
