@@ -1,5 +1,5 @@
 #include <stddef.h>
-#include <stdio.h>
+#include "lib/stdio.h"
 #include "userprog/syscall.h"
 #include "lib/kernel/stdio.h"
 #include <syscall-nr.h>
@@ -129,16 +129,20 @@ int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 
 static int sys_write_handler ( int fd, int buffer, int size)
 {
-  // printf("write is called\n");
-  // printf("fd == %d\n", fd);
-  printf("%p, %u\n", (void*)buffer, size);
-  if (fd == 1)
+  if (fd == STDOUT_FILENO)
   {
-    putbuf((char *) buffer, size);
-    // printf("%s", (char *) buffer);
+    putbuf((char *) buffer, (size_t) size);
+    return size;
   }
-  // not sure what to do
-  return 0;
+
+  if (fd == STDIN_FILENO)
+    sys_exit_handler(-1, -1, -1);
+
+  struct file * file = to_file(fd);
+  if (file == NULL)
+    sys_exit_handler(-1, -1, -1);
+  
+  return file_write(file, (const void *) buffer, (off_t) size);
 }
 
 static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {
@@ -175,7 +179,7 @@ static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
 
 static int sys_open_handler (int file_name UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 { 
-  
+
 
   return 0;
 }
