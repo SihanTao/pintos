@@ -93,6 +93,12 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while (true)
+  {
+    /* pass */
+    ;
+  }
+  
   return -1;
 }
 
@@ -200,7 +206,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char *file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -307,7 +313,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, file_name))
     goto done;
 
   /* Start address. */
@@ -440,7 +446,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, const char *file_name) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -449,11 +455,71 @@ setup_stack (void **esp)
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
+      if (success){
         *esp = PHYS_BASE;
+
+        /* Count the number of arguments */
+        int argc = 0; // Number of arguments
+        const int length = strlen(file_name);
+        char *fn_copy = (char *) calloc (length + 1, sizeof(char));
+        strlcpy(fn_copy, file_name, PGSIZE);
+
+        char *token, *save_ptr;
+
+        for (token = strtok_r (fn_copy, " ", &save_ptr); token != NULL;
+            token = strtok_r (NULL, " ", &save_ptr))
+        {
+          argc++;
+        }
+
+        char ** arg_addr = calloc (argc, sizeof(char *));
+        
+        // Push the arguments onto the stack in reverse order
+        strlcpy(fn_copy, file_name, PGSIZE);
+        token = strtok_r (fn_copy, " ", &save_ptr);
+        for (int i = 0; token != NULL; i++)
+        {
+          size_t length = strlen(token);
+          *esp -= (length + 1) * sizeof(char);
+          memcpy(*esp, token, length + 1);
+          arg_addr[i] = *esp;
+          token = strtok_r (NULL, " ", &save_ptr);
+        }
+        
+        // Word alignment
+        *esp = (void *)((int) *esp & 3);
+
+        // Push a null pointer 0
+        *esp -= sizeof(uint8_t);
+        *(uint8_t *)*esp = 0;
+
+        // Push pointers to the arguments in reverse order
+        for (int i = argc - 1; i >= 0; i--)
+        {
+          *esp -= sizeof(char *);
+          // memcpy (*esp, arg_addr + i, sizeof(char *));
+          *(char **) *esp = *(arg_addr + i);
+        }
+        
+        // Push a pointer to the first pointer
+        *esp -= sizeof(char **);
+        *(char**)*esp = (char *)*esp + sizeof(char **);
+
+        // Push the number of arguments
+        *esp -= sizeof(int);
+        *(int *) *esp = argc;
+
+        // Push a fake return address
+        *esp -= sizeof(int);
+        *(int *) *esp = 0;
+      } 
       else
         palloc_free_page (kpage);
     }
+  
+  printf("Here!!!!!!!!!!!!!!!!!!!!!!\n");
+  char buffer[1024];
+  hex_dump(0xc0000000, buffer, 100, true);
   return success;
 }
 
