@@ -5,6 +5,11 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+
+static struct lock filesys_lock;
 
 static int sys_halt_handler (int, int, int);
 static int sys_exit_handler ( int, int, int);
@@ -19,8 +24,6 @@ static int sys_write_handler ( int, int, int);
 static int sys_seek_handler ( int, int, int);
 static int sys_tell_handler ( int, int, int);
 static int sys_close_handler ( int, int, int);
-
-
 
 static void syscall_handler (struct intr_frame *);
 
@@ -69,6 +72,7 @@ static void resolve_syscall_stack (int argc, void * stack_pointer, int * output)
 void
 syscall_init (void) 
 {
+  lock_init(&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -146,7 +150,18 @@ static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
     return 0;
   }
 static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_create_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+
+static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
+{ 
+  check_safe_memory_access((const void *) file_name);
+
+  lock_acquire(&filesys_lock);
+  bool output = filesys_create((const char *) file_name, (off_t) size);
+  lock_release(&filesys_lock);
+  
+  return output; 
+}
+
 static int sys_remove_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_open_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_filesize_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
