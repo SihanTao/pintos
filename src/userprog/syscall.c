@@ -159,11 +159,27 @@ static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
   bool output = filesys_create((const char *) file_name, (off_t) size);
   lock_release(&filesys_lock);
   
-  return output; 
+  return (int) output; 
 }
 
-static int sys_remove_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_open_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
+{
+  check_safe_memory_access((const void *) file_name);
+
+  lock_acquire(&filesys_lock);
+  bool output = filesys_remove((const char *) file_name);
+  lock_release(&filesys_lock);
+
+  return (int) output; 
+}
+
+static int sys_open_handler (int file_name UNUSED, int arg1 UNUSED, int arg2 UNUSED)
+{ 
+  
+
+  return 0;
+}
+
 static int sys_filesize_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_read_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_seek_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
