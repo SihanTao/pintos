@@ -43,6 +43,7 @@ process_execute (const char *file_name)
   char * f_name, *save_ptr;
   f_name = strtok_r (file_name, " ", &save_ptr);
 
+  printf("f_name is: %s\n", f_name);
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (f_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
@@ -56,6 +57,7 @@ static void
 start_process (void *file_name_)
 {
   char *file_name = file_name_;
+  printf("File name is: %s\n", file_name);
   struct intr_frame if_;
   bool success;
 
@@ -225,6 +227,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
+  char fn_copy[strlen(file_name) + 1];
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -233,10 +236,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  char *save_ptr;
+  strlcpy(fn_copy, file_name, PGSIZE);
+  char *f_name = strtok_r(fn_copy, " ", &save_ptr);
+  file = filesys_open (f_name);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", f_name);
       goto done; 
     }
 
@@ -461,37 +467,46 @@ setup_stack (void **esp, const char *file_name)
         /* Count the number of arguments */
         int argc = 0; // Number of arguments
         const int length = strlen(file_name);
-        char *fn_copy = (char *) calloc (length + 1, sizeof(char));
+        char fn_copy[length + 1];
         strlcpy(fn_copy, file_name, PGSIZE);
 
         char *token, *save_ptr;
-
-        for (token = strtok_r (fn_copy, " ", &save_ptr); token != NULL;
+        char ** cmd_argvs = palloc_get_page(PAL_ZERO);  
+        token = strtok_r (fn_copy, " ", &save_ptr);
+        for (; token != NULL;
             token = strtok_r (NULL, " ", &save_ptr))
         {
-          argc++;
+          printf("%s\n", token);
+          // printf("%d\n", token[strlen(token)]=='\n');
+          int length = strlen(token);
+          cmd_argvs[argc++] = token;
+          printf("1: %s\n", cmd_argvs[argc -1]);
         }
 
         char ** arg_addr = calloc (argc, sizeof(char *));
+        strlcpy(fn_copy, file_name, PGSIZE);
         
         // Push the arguments onto the stack in reverse order
-        strlcpy(fn_copy, file_name, PGSIZE);
-        token = strtok_r (fn_copy, " ", &save_ptr);
-        for (int i = 0; token != NULL; i++)
+        for (int i = argc - 1; i >= 0; i--)
         {
-          size_t length = strlen(token);
-          *esp -= (length + 1) * sizeof(char);
-          memcpy(*esp, token, length + 1);
+          printf("%s\n", cmd_argvs[i]);
+          size_t token_length = strlen(cmd_argvs[i]);
+          *esp -= (token_length + 1);
+          // printf("%s\n", *(char**)*esp);
+          printf("%s\n", cmd_argvs[i]);
+          strlcpy(*esp, cmd_argvs[i], token_length + 1);
+          // hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
           arg_addr[i] = *esp;
-          token = strtok_r (NULL, " ", &save_ptr);
         }
-        
+
+        palloc_free_page(cmd_argvs);
+
         // Word alignment
-        *esp = (void *)((int) *esp & 3);
+        *esp = (void*)((unsigned int)(*esp) & 0xfffffffc);
 
         // Push a null pointer 0
-        *esp -= sizeof(uint8_t);
-        *(uint8_t *)*esp = 0;
+        *esp -= sizeof(char *);
+        *(char *)*esp = '\0';
 
         // Push pointers to the arguments in reverse order
         for (int i = argc - 1; i >= 0; i--)
@@ -501,6 +516,8 @@ setup_stack (void **esp, const char *file_name)
           *(char **) *esp = *(arg_addr + i);
         }
         
+        free(arg_addr);
+
         // Push a pointer to the first pointer
         *esp -= sizeof(char **);
         *(char**)*esp = (char *)*esp + sizeof(char **);
@@ -516,10 +533,7 @@ setup_stack (void **esp, const char *file_name)
       else
         palloc_free_page (kpage);
     }
-  
-  printf("Here!!!!!!!!!!!!!!!!!!!!!!\n");
-  char buffer[1024];
-  hex_dump(0xc0000000, buffer, 100, true);
+  hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
   return success;
 }
 
