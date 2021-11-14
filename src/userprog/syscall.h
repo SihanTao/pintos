@@ -7,8 +7,15 @@
 
 #include "pagedir.h"
 #include "../threads/vaddr.h"
+#include <list.h>
 
-void* check_safe_memory_access(const void* vaddr);
+struct file_descriptor
+{
+    int fd;                 /* An incrementor used to indicate each call to the file */
+    struct file * file;     /* A pointer to the file indecated to */
+    struct list_elem elem;  /* Threads that opens the file */
+};
+
 void syscall_init (void);
 
 #endif /* userprog/syscall.h */

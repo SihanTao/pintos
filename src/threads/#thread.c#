@@ -13,7 +13,6 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include "threads/malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif

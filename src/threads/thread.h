@@ -4,6 +4,7 @@
 #include "threads/fixed_point.h"
 #include <debug.h>
 #include <list.h>
+#include <hash.h>
 #include <stdint.h>
 
 /* States in a thread's life cycle. */
@@ -106,6 +107,10 @@ struct thread
   /* Used by userprog/syscall.c */
   struct list list_of_child_process;
   struct process_state *process_ref;
+
+  int fd_incrementor;
+  struct list file_descriptors;
+
 #endif
 
   /* Owned by thread.c. */
