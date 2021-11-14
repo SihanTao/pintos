@@ -151,12 +151,14 @@ static int sys_write_handler ( int fd, int buffer, int size)
   return file_write(file, (const void *) buffer, (off_t) size);
 }
 
+/* Terminates Pintos */
 static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 {
   shutdown_power_off ();
   return 0;
 }
 
+/* Set the current thread's exit status to 0 and the exit status to true */
 int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 {
   thread_current ()->process_ref->exit_status = arg0;
@@ -165,6 +167,7 @@ int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
   return 0;
 }
 
+/* Runs the given cmd_line and return the the PID of the new process */
 static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) 
 {
   const char *cmd_line = (char *) arg0;
@@ -174,9 +177,11 @@ static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
   sema_init (&status.done, 0);
   
   pid = process_execute_inner (cmd_line, &status, child_state);
+
   if (pid == TID_ERROR)
     return -1;
-  
+    // wait until the other thread finished loading the executable; sema_up
+    // will be called by the thread created by process_execute_inner 
   sema_down (&status.done);
 
   if (!status.success)
@@ -186,7 +191,8 @@ static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
   child_state->pid = pid;
   child_state->exited = false;
   list_push_back (&t->list_of_child_process, &child_state->elem);
-  
+  // add the child state to the list of child process of the current thread 
+
   return pid;
 }
 
