@@ -5,6 +5,10 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "devices/shutdown.h"
+#include "threads/synch.h"
+#include "userprog/process.h"
+#include "threads/malloc.h"
 
 static int sys_halt_handler (int, int, int);
 static int sys_exit_handler ( int, int, int);
@@ -19,8 +23,6 @@ static int sys_write_handler ( int, int, int);
 static int sys_seek_handler ( int, int, int);
 static int sys_tell_handler ( int, int, int);
 static int sys_close_handler ( int, int, int);
-
-
 
 static void syscall_handler (struct intr_frame *);
 
@@ -83,7 +85,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     check_safe_memory_access(stack_ptr + i);
   }
 
-  int syscall_number = *(int*) stack_ptr;
+  int syscall_number = *(int32_t*) stack_ptr;
   // struct thread * cur = thread_current();
   resolve_syscall_stack (argc_syscall[syscall_number], stack_ptr, sys_argv);
 
@@ -115,13 +117,6 @@ void* check_safe_memory_access(const void* vaddr)
   
 }
 
-int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
-{
-  // printf("%s: exit(%d)\n", thread_current()->name, 0);
-  thread_exit ();
-  // not sure what to do
-  return 0;
-}
 
 static int sys_write_handler ( int fd, int buffer, int size)
 {
@@ -137,15 +132,50 @@ static int sys_write_handler ( int fd, int buffer, int size)
   return 0;
 }
 
-static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {
-  sys_exit_handler(0, 0, 0);
+static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
+{
+  shutdown_power_off ();
   return 0;
 }
+
+int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
+{
+  thread_current ()->process_ref->exit_status = arg0;
+  thread_current ()->process_ref->exited = true;
+  process_exit ();
+  return 0;
+}
+
 static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) 
-  {
-    return 0;
-  }
-static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+{
+  const char *cmd_line = (char *) arg0;
+  int pid;
+  struct process_load_status status;
+  struct process_state *child_state = calloc(1, sizeof(struct process_state));
+  sema_init (&status.done, 0);
+  
+  pid = process_execute_inner (cmd_line, &status, child_state);
+  if (pid == TID_ERROR)
+    return -1;
+  
+  sema_down (&status.done);
+
+  if (!status.success)
+    return -1;
+
+  struct thread *t = thread_current ();
+  child_state->pid = pid;
+  child_state->exited = false;
+  list_push_back (&t->list_of_child_process, &child_state->elem);
+  
+  return pid;
+}
+
+static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {
+  tid_t pid = (tid_t) arg0;
+  return process_wait (pid);
+}
+
 static int sys_create_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_remove_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_open_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
@@ -154,3 +184,5 @@ static int sys_read_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 static int sys_seek_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_tell_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_close_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+
+

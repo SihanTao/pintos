@@ -20,6 +20,16 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static struct process_state *pids_find_and_remove (struct list *l, pid_t pid);
+
+/* Passed as argument into start_process. 
+   This struct is represented in a page, where load_status pointer is
+   copied into first 4 byte, and file_name occupy the remaining of the page*/
+struct start_process_args {
+  struct process_load_status *load_status;
+  struct process_state *state;
+  char file_name_first_char;
+};
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -28,29 +38,43 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
+  printf("process_execute:...\n");
+  return process_execute_inner (file_name, NULL, NULL);
+}
+
+/* Same as above, except that it pass synchronisation mechanism 
+   into start_process to indicate when start_process has finish load*/
+tid_t
+process_execute_inner (const char *file_name, struct process_load_status *load_status UNUSED,
+		       struct process_state *state UNUSED) {
+  char *process_args;
   tid_t tid;
 
-  /* Make a copy of FILE_NAME.
+  /* Copy status into first 4 byte */
+  /* Then, Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  process_args = palloc_get_page (0);
+  if (process_args == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
-
+  *(void **)process_args = load_status;
+  *((void **)process_args + 1) = state;
+  strlcpy (process_args + 2 * sizeof(void *), file_name, PGSIZE);
+  
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, process_args);
+  // PROBLEM: fn_copy and args may not be valid after this func return
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (process_args); 
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *aux)
 {
-  char *file_name = file_name_;
+  struct start_process_args *args = (struct start_process_args *) aux;
+  char *file_name = &args->file_name_first_char;
   struct intr_frame if_;
   bool success;
 
@@ -61,8 +85,21 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
+  /* if load_status is provided, assign success result into load_status 
+     result, and then sema_up relevant semaphore */
+  if (args->load_status != NULL)
+  {
+    args->load_status->success = success;
+    sema_up (&args->load_status->done);
+  }
+
+  if (args->state != NULL)
+  {
+    thread_current ()->process_ref = args->state;
+  }
+
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (args);
   if (!success) 
     thread_exit ();
 
@@ -70,7 +107,8 @@ start_process (void *file_name_)
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
      arguments on the stack in the form of a `struct intr_frame',
-     we just point the stack pointer (%esp) to our stack frame
+  
+   we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
@@ -88,10 +126,19 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  for(;;)
-  ;
-    // printf("process_wait:...\n"); //pass
-  return -1;
+  struct process_state *child_state =
+    pids_find_and_remove (&thread_current()->list_of_child_process, child_tid);
+
+  /* return -1 immediately when pid does not refer to direct child of 
+     calling process, or porcess that calls wait has already called wait in pid */
+  if (child_state == NULL)
+    return -1;
+
+  /* Wait until child process_return */
+  // TODO: Implement using semaphore
+  while (child_state->exited == false) {}
+  
+  return child_state->exit_status;
 }
 
 /* Free the current process's resources. */
@@ -473,4 +520,18 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+static struct process_state *
+pids_find_and_remove (struct list *l, pid_t pid) {
+  if (list_empty (l))
+    return NULL;
+  
+  for (struct list_elem *cur = list_front (l); cur != list_tail (l); cur = list_next (cur)) {
+    if (list_entry (cur, struct process_state, elem)->pid == pid) {
+      list_remove (cur);
+      return list_entry (cur, struct process_state, elem);
+    }
+  }
+  return NULL;
 }

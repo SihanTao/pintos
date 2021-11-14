@@ -4,6 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "userprog/process.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -86,6 +87,11 @@ kill (struct intr_frame *f)
       printf ("%s: dying due to interrupt %#04x (%s).\n",
               thread_name (), f->vec_no, intr_name (f->vec_no));
       intr_dump_frame (f);
+
+      struct process_state *state_ref = thread_current ()->process_ref;
+      state_ref->exit_status = -1;
+      state_ref->exited = true;
+      
       thread_exit (); 
 
     case SEL_KCSEG:
