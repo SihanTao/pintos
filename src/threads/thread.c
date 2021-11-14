@@ -640,6 +640,11 @@ init_thread (struct thread *t, const char *name, int priority)
 {
   enum intr_level old_level;
 
+#ifdef USERPROG
+  t->fd_incrementor = 3; // the first value is 3
+                         // 0, 1, 2 for stdin stdout stderr
+#endif // USERPROG
+
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);

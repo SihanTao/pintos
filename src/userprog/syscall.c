@@ -1,10 +1,35 @@
 #include <stddef.h>
-#include <stdio.h>
+#include <list.h>
+#include "lib/stdio.h"
 #include "userprog/syscall.h"
 #include "lib/kernel/stdio.h"
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "devices/input.h"
+#include "threads/synch.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+
+static struct lock filesys_lock;
+static struct lock fd_hash_lock;
+
+static int sys_halt_handler (int, int, int);
+static int sys_exit_handler ( int, int, int);
+static int sys_exec_handler ( int, int, int);
+static int sys_wait_handler ( int, int, int);
+static int sys_create_handler ( int, int, int);
+static int sys_remove_handler ( int, int, int);
+static int sys_open_handler ( int, int, int);
+static int sys_filesize_handler ( int, int, int);
+static int sys_read_handler ( int, int, int);
+static int sys_write_handler ( int, int, int);
+static int sys_seek_handler ( int, int, int);
+static int sys_tell_handler ( int, int, int);
+static int sys_close_handler ( int, int, int);
+static struct file * to_file(int fd);
+static struct file_descriptor * to_file_descriptor(int fd);
+static void* check_safe_memory_access(void* vaddr);
 
 static int sys_halt_handler (int, int, int);
 static int sys_exit_handler ( int, int, int);
@@ -68,6 +93,8 @@ static void resolve_syscall_stack (int argc, void * stack_pointer, int * output)
 void
 syscall_init (void) 
 {
+  lock_init(&filesys_lock);
+  lock_init(&fd_hash_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -95,7 +122,7 @@ syscall_handler (struct intr_frame *f UNUSED)
  * Check whether the VADDR is safe.
  * Otherwise exit the thread.
  */
-void* check_safe_memory_access(const void* vaddr)
+void* check_safe_memory_access(void* vaddr)
 {
   struct thread * cur = thread_current();
 
@@ -124,16 +151,20 @@ int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 
 static int sys_write_handler ( int fd, int buffer, int size)
 {
-  // printf("write is called\n");
-  // printf("fd == %d\n", fd);
-  printf("%p, %u\n", (void*)buffer, size);
-  if (fd == 1)
+  if (fd == STDOUT_FILENO)
   {
-    putbuf((char *) buffer, size);
-    // printf("%s", (char *) buffer);
+    putbuf((char *) buffer, (size_t) size);
+    return size;
   }
-  // not sure what to do
-  return 0;
+
+  if (fd == STDIN_FILENO)
+    sys_exit_handler(-1, -1, -1);
+
+  struct file * file = to_file(fd);
+  if (file == NULL)
+    sys_exit_handler(-1, -1, -1);
+  
+  return file_write(file, (const void *) buffer, (off_t) size);
 }
 
 static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {
@@ -145,11 +176,155 @@ static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
     return 0;
   }
 static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_create_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_remove_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_open_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_filesize_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_read_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_seek_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_tell_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_close_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+
+static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
+{ 
+  check_safe_memory_access((void *) file_name);
+
+  lock_acquire(&filesys_lock);
+  bool output = filesys_create((const char *) file_name, (off_t) size);
+  lock_release(&filesys_lock);
+  
+  return (int) output; 
+}
+
+static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
+{
+  check_safe_memory_access((char *) file_name);
+
+  lock_acquire(&filesys_lock);
+  bool output = filesys_remove((const char *) file_name);
+  lock_release(&filesys_lock);
+
+  return (int) output; 
+}
+
+int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
+{ 
+  check_safe_memory_access((char *) file_name); 
+  struct file * file;
+  struct file_descriptor file_descriptor;
+  struct thread * cur = thread_current();
+
+  lock_acquire(&filesys_lock);
+
+  if (!(file = filesys_open((const char *) file_name)))
+  {
+    lock_release(&filesys_lock);
+    return -1;
+  }
+
+  file_descriptor.file = file;
+  file_descriptor.fd = cur -> fd_incrementor++;
+  list_push_back(&cur->file_descriptors, &file_descriptor.elem);
+
+  lock_release(&filesys_lock);
+  return file_descriptor.fd;
+}
+
+static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
+{ 
+  lock_acquire (&filesys_lock);
+  struct file * file = to_file(fd);
+
+  if(file== NULL) {
+    lock_release (&filesys_lock);
+    return -1;
+  }
+
+  int ret = file_length(file);
+  lock_release (&filesys_lock);
+  return ret;
+}
+
+static int sys_read_handler ( int fd, int buffer, int size)
+{
+  for (int i = 0; i < size; i++)
+    check_safe_memory_access((char *) buffer + i);
+
+  lock_acquire (&filesys_lock);
+
+  if(fd == STDIN_FILENO) 
+  {
+    for(int i = 0; i < size; i++)
+      ((char *) buffer)[i] = input_getc();
+    lock_release (&filesys_lock);
+    return size;
+  }
+
+  struct file * file = to_file(fd);
+  int ret = file ? file_read(file, (char *) buffer, size) : -1;
+
+  lock_release (&filesys_lock);
+  return ret;
+}
+static int sys_seek_handler (int fd, int position, int arg2 UNUSED) 
+{ 
+  if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
+      return 0;
+
+  lock_acquire (&filesys_lock);
+  struct file *file = to_file (fd);
+  if (!file)
+    return 0;
+  file_seek (file, position);
+  lock_release (&filesys_lock);
+  return 0; 
+}
+static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
+{ 
+  if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
+      return 0;
+
+  lock_acquire (&filesys_lock);
+  struct file *file = to_file (fd);
+  if (!file)
+    return 0;
+  file_tell (file);
+  lock_release (&filesys_lock);
+  return 0;
+}
+static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
+{ 
+  lock_acquire (&filesys_lock);
+  struct file_descriptor * file_descriptor = to_file_descriptor(fd);
+  if (!file_descriptor)
+    return 0;
+
+  file_close (file_descriptor->file);
+  list_remove (&file_descriptor->elem);
+  lock_release (&filesys_lock);
+
+  return 0;
+}
+
+// pre : wrapped by file_system locks!
+// find file according to fd in current thread
+// if fd not exist, return NULL
+ struct file * to_file(int fd)
+{
+  struct file_descriptor * file_descriptor = to_file_descriptor(fd);
+  if (!file_descriptor)
+    return NULL;
+
+  return file_descriptor->file;
+}
+
+inline struct file_descriptor * to_file_descriptor(int fd)
+{
+  struct thread * cur = thread_current();
+  struct list * fds = &cur->file_descriptors;
+  struct list_elem * e;
+  struct file_descriptor * file_descriptor;
+
+  for (e = list_begin(fds); e != list_end(fds) ; e = list_next(e))
+  {
+    file_descriptor = list_entry(e, struct file_descriptor, elem);
+    if (file_descriptor->fd == fd)
+    {
+      return file_descriptor;
+    }
+  }
+
+  return NULL;
+}
