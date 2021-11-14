@@ -6,6 +6,7 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "devices/input.h"
 #include "threads/synch.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
@@ -218,8 +219,32 @@ static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   lock_release (&filesys_lock);
   return ret;
 }
-static int sys_read_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
-static int sys_seek_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+
+static int sys_read_handler ( int fd, int buffer, int size)
+{
+  for (int i = 0; i < size; i++)
+    check_safe_memory_access(buffer + i);
+
+  lock_acquire (&filesys_lock);
+
+  if(fd == STDIN_FILENO) 
+  {
+    for(int i = 0; i < size; i++)
+      ((char *) buffer)[i] = input_getc();
+    lock_release (&filesys_lock);
+    return size;
+  }
+
+  struct file * file = to_file(fd);
+  int ret = file ? file_read(file, buffer, size) : -1;
+
+  lock_release (&filesys_lock);
+  return ret;
+}
+static int sys_seek_handler (int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) 
+{ 
+  return 0; 
+}
 static int sys_tell_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_close_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 
