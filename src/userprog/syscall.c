@@ -196,6 +196,7 @@ static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
   return pid;
 }
 
+/* Waits for a child process pid and retrieves the child’s exit status */
 static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {
   tid_t pid = (tid_t) arg0;
   return process_wait (pid);
