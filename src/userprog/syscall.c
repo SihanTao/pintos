@@ -204,7 +204,20 @@ int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
   return file_descriptor.fd;
 }
 
-static int sys_filesize_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
+{ 
+  lock_acquire (&filesys_lock);
+  struct file * file = to_file(fd);
+
+  if(fd == NULL) {
+    lock_release (&filesys_lock);
+    return -1;
+  }
+
+  int ret = file_length(file);
+  lock_release (&filesys_lock);
+  return ret;
+}
 static int sys_read_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_seek_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_tell_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
