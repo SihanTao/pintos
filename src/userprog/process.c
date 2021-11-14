@@ -18,8 +18,23 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#define MAX_ARGC 128
+#define MAX_ARGV 512
+#define push_stack_size(source, size) \
+        do {*esp -= (size);\
+            memcpy(*esp, (source), (size));} while (0)
+#define push_stack(source) push_stack_size(&(source), sizeof (source))
+#define word_align(value) ((unsigned int)(value) & 0xfffffffc)
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+static struct parse_arg_aux
+{
+  char * ptrs_to_argvs[MAX_ARGC];  
+  char whole_command_line_cp[MAX_ARGV + 1];
+  char token_copy_storage[MAX_ARGV + 1];
+};
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -466,66 +481,57 @@ setup_stack (void **esp, const char *file_name)
       if (success){
         *esp = PHYS_BASE;
 
-        const int length = strlen(file_name);
-        char fn_copy[length + 1];
-        strlcpy(fn_copy, file_name, PGSIZE);
+        struct parse_arg_aux * parse_arg_aux = palloc_get_page(0);
+        char * token_copy_pos = parse_arg_aux->token_copy_storage;
 
+        strlcpy(parse_arg_aux->whole_command_line_cp, file_name, MAX_ARGV + 1);
+        memset(parse_arg_aux->token_copy_storage, 0, MAX_ARGV + 1);
+        // pointer to current position being copied
+        
         /* Count the number of arguments */
         int argc = 0; // Number of arguments
         char *token, *save_ptr;
-        char ** cmd_argvs = palloc_get_page(PAL_ZERO);  
-        token = strtok_r (fn_copy, " ", &save_ptr);
+        int len;
+        token = strtok_r (parse_arg_aux->whole_command_line_cp, " ", &save_ptr);
         for (; token != NULL;
             token = strtok_r (NULL, " ", &save_ptr))
         {
-          char *token_copy = palloc_get_page(PAL_ZERO);
-          strlcpy(token_copy, token, strlen(token) + 1);
-          cmd_argvs[argc++] = token_copy;
+          len = strlen(token);
+          strlcpy(token_copy_pos, token, len + 1);
+          parse_arg_aux->ptrs_to_argvs[argc++] = token_copy_pos;
+          token_copy_pos += len + 2;
         }
 
-        char ** arg_addr = calloc (argc, sizeof(char *));
-        strlcpy(fn_copy, file_name, PGSIZE);
+        char * arg_addr[argc];
         
         // Push the arguments onto the stack in reverse order
         for (int i = argc - 1; i >= 0; i--)
         {
-          size_t token_length = strlen(cmd_argvs[i]);
-          *esp -= (token_length + 1);
-          memcpy(*esp, cmd_argvs[i], token_length + 1);
+          size_t token_length = strlen(parse_arg_aux->ptrs_to_argvs[i]);
+          push_stack_size(parse_arg_aux->ptrs_to_argvs[i], token_length + 1);
+          // *esp -= (token_length + 1);
+          // memcpy(*esp, parse_arg_aux->ptrs_to_argvs[i], token_length + 1);
           arg_addr[i] = *esp;
         }
 
-        palloc_free_page(cmd_argvs);
+        static const int nullptr = 0;
 
-        // Word alignment 
-        *esp = (void*)((unsigned int)(*esp) & 0xfffffffc);
+        *esp = (void*) word_align(*esp);
 
         // Push a null pointer 0
-        *esp -= sizeof(char *);
-        *(char *)*esp = '\0';
+        push_stack(nullptr);
 
         // Push pointers to the arguments in reverse order
         for (int i = argc - 1; i >= 0; i--)
-        {
-          *esp -= sizeof(char *);
-          memcpy (*esp, arg_addr + i, sizeof(char *));
-        }
-        
-        free(arg_addr);
-
+          push_stack(arg_addr[i]);
+                
         // Push a pointer to the first pointer
-        *esp -= sizeof(char **);
-        *(char**)*esp = (char *)*esp + sizeof(char **);
-        // memcpy(*esp, &(*esp + sizeof(char **)), sizeof(char **));
+        // not using push stack, since ambiguity in type
+        const char * previous_esp = (*esp);
+        push_stack_size(&previous_esp, sizeof (char **));
 
-        // Push the number of arguments
-        *esp -= sizeof(int);
-        // *(int *) *esp = argc;
-        memcpy (*esp, &argc, sizeof(int));
-
-        // Push a fake return address
-        *esp -= sizeof(int);
-        *(int *) *esp = 0;
+        push_stack(argc);
+        push_stack(nullptr); // push a fake return address
       } 
       else
         palloc_free_page (kpage);
