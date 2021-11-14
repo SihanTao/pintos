@@ -102,6 +102,10 @@ struct thread
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
   uint32_t *pagedir; /* Page directory. */
+
+  /* Used by userprog/syscall.c */
+  struct list list_of_child_process;
+  struct process_state *process_ref;
 #endif
 
   /* Owned by thread.c. */

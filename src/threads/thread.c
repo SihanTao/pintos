@@ -431,6 +431,16 @@ thread_exit (void)
      when it calls thread_schedule_tail(). */
   intr_disable ();
   list_remove (&thread_current ()->allelem);
+
+  /* Free each struct process_state in list_of_child_process */
+  struct list child_processes = thread_current ()->list_of_child_process;
+  while (!list_empty (&child_processes)) {
+    struct process_state *ps = list_entry (list_pop_front (&child_processes),
+					   struct process_state, elem);
+    ps->child->process_ref = NULL;
+    free(ps);
+  }
+  
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -652,6 +662,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   list_init (&t->list_of_locks);
   t->cached_priority = priority;
+
+  list_init (&t->list_of_child_process);
 
   if (thread_mlfqs)
     {
