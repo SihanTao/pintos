@@ -28,6 +28,8 @@ static int sys_seek_handler ( int, int, int);
 static int sys_tell_handler ( int, int, int);
 static int sys_close_handler ( int, int, int);
 static struct file * to_file(int fd);
+static struct file_descriptor * to_file_descriptor(int fd);
+static void* check_safe_memory_access(void* vaddr);
 
 static void syscall_handler (struct intr_frame *);
 
@@ -105,7 +107,7 @@ syscall_handler (struct intr_frame *f UNUSED)
  * Check whether the VADDR is safe.
  * Otherwise exit the thread.
  */
-void* check_safe_memory_access(const void* vaddr)
+void* check_safe_memory_access(void* vaddr)
 {
   struct thread * cur = thread_current();
 
@@ -162,7 +164,7 @@ static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 
 static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
 { 
-  check_safe_memory_access((const void *) file_name);
+  check_safe_memory_access((void *) file_name);
 
   lock_acquire(&filesys_lock);
   bool output = filesys_create((const char *) file_name, (off_t) size);
@@ -173,7 +175,7 @@ static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
 
 static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
 {
-  check_safe_memory_access((const void *) file_name);
+  check_safe_memory_access((char *) file_name);
 
   lock_acquire(&filesys_lock);
   bool output = filesys_remove((const char *) file_name);
@@ -184,7 +186,7 @@ static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
 
 int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
 { 
-  check_safe_memory_access((const void *) file_name); 
+  check_safe_memory_access((char *) file_name); 
   struct file * file;
   struct file_descriptor file_descriptor;
   struct thread * cur = thread_current();
@@ -210,7 +212,7 @@ static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   lock_acquire (&filesys_lock);
   struct file * file = to_file(fd);
 
-  if(fd == NULL) {
+  if(file== NULL) {
     lock_release (&filesys_lock);
     return -1;
   }
@@ -223,7 +225,7 @@ static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 static int sys_read_handler ( int fd, int buffer, int size)
 {
   for (int i = 0; i < size; i++)
-    check_safe_memory_access(buffer + i);
+    check_safe_memory_access((char *) buffer + i);
 
   lock_acquire (&filesys_lock);
 
@@ -236,7 +238,7 @@ static int sys_read_handler ( int fd, int buffer, int size)
   }
 
   struct file * file = to_file(fd);
-  int ret = file ? file_read(file, buffer, size) : -1;
+  int ret = file ? file_read(file, (char *) buffer, size) : -1;
 
   lock_release (&filesys_lock);
   return ret;
@@ -246,8 +248,10 @@ static int sys_seek_handler (int fd, int position, int arg2 UNUSED)
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
       return 0;
 
-  struct file *file = to_file (fd);
   lock_acquire (&filesys_lock);
+  struct file *file = to_file (fd);
+  if (!file)
+    return 0;
   file_seek (file, position);
   lock_release (&filesys_lock);
   return 0; 
@@ -257,18 +261,41 @@ static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
       return 0;
 
-  struct file *file = to_file (fd);
   lock_acquire (&filesys_lock);
+  struct file *file = to_file (fd);
+  if (!file)
+    return 0;
   file_tell (file);
   lock_release (&filesys_lock);
   return 0;
 }
-static int sys_close_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
+{ 
+  lock_acquire (&filesys_lock);
+  struct file_descriptor * file_descriptor = to_file_descriptor(fd);
+  if (!file_descriptor)
+    return 0;
+
+  file_close (file_descriptor->file);
+  list_remove (&file_descriptor->elem);
+  lock_release (&filesys_lock);
+
+  return 0;
+}
 
 // pre : wrapped by file_system locks!
 // find file according to fd in current thread
 // if fd not exist, return NULL
-static struct file * to_file(int fd)
+ struct file * to_file(int fd)
+{
+  struct file_descriptor * file_descriptor = to_file_descriptor(fd);
+  if (!file_descriptor)
+    return NULL;
+
+  return file_descriptor->file;
+}
+
+inline struct file_descriptor * to_file_descriptor(int fd)
 {
   struct thread * cur = thread_current();
   struct list * fds = &cur->file_descriptors;
@@ -280,7 +307,7 @@ static struct file * to_file(int fd)
     file_descriptor = list_entry(e, struct file_descriptor, elem);
     if (file_descriptor->fd == fd)
     {
-      return file_descriptor->file;
+      return file_descriptor;
     }
   }
 

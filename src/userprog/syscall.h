@@ -16,7 +16,6 @@ struct file_descriptor
     struct list_elem elem;
 };
 
-void* check_safe_memory_access(const void* vaddr);
 void syscall_init (void);
 
 #endif /* userprog/syscall.h */
