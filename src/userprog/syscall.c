@@ -241,8 +241,15 @@ static int sys_read_handler ( int fd, int buffer, int size)
   lock_release (&filesys_lock);
   return ret;
 }
-static int sys_seek_handler (int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) 
+static int sys_seek_handler (int fd, int position, int arg2 UNUSED) 
 { 
+  if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
+      return 0;
+
+  struct file *file = to_file (fd);
+  lock_acquire (&filesys_lock);
+  file_seek (file, position);
+  lock_release (&filesys_lock);
   return 0; 
 }
 static int sys_tell_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
