@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <list.h>
 #include "lib/stdio.h"
 #include "userprog/syscall.h"
 #include "lib/kernel/stdio.h"
@@ -10,6 +11,7 @@
 #include "filesys/file.h"
 
 static struct lock filesys_lock;
+static struct lock fd_hash_lock;
 
 static int sys_halt_handler (int, int, int);
 static int sys_exit_handler ( int, int, int);
@@ -73,6 +75,7 @@ void
 syscall_init (void) 
 {
   lock_init(&filesys_lock);
+  lock_init(&fd_hash_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -177,11 +180,28 @@ static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
   return (int) output; 
 }
 
-static int sys_open_handler (int file_name UNUSED, int arg1 UNUSED, int arg2 UNUSED)
+int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
 { 
+  check_safe_memory_access((const void *) file_name); 
+  struct file * file;
+  int ret;
+  struct file_descriptor file_descriptor;
+  struct thread * cur = thread_current();
 
+  lock_acquire(&filesys_lock);
 
-  return 0;
+  if (!(file = filesys_open((const char *) file_name)))
+  {
+    lock_release(&filesys_lock);
+    return -1;
+  }
+
+  file_descriptor.file = file;
+  file_descriptor.fd = cur -> fd_incrementor++;
+  list_push_back(&cur->file_descriptors, &file_descriptor.elem);
+
+  lock_release(&filesys_lock);
+  return file_descriptor.fd;
 }
 
 static int sys_filesize_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }

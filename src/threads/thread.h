@@ -4,6 +4,7 @@
 #include "threads/fixed_point.h"
 #include <debug.h>
 #include <list.h>
+#include <hash.h>
 #include <stdint.h>
 
 /* States in a thread's life cycle. */
@@ -102,6 +103,8 @@ struct thread
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
   uint32_t *pagedir; /* Page directory. */
+  int fd_incrementor;
+  struct list file_descriptors;
 #endif
 
   /* Owned by thread.c. */
