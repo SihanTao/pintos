@@ -8,4 +8,4 @@ pintos-mkdisk filesys.dsk --filesys-size=2
 pintos -f -q
 pintos -p ../../examples/halt -a halt -- -q
 pintos -p ../../examples/echo -a echo -- -q
-pintos -q run 'echo foo bar'
+pintos -q run 'echo hello world !'

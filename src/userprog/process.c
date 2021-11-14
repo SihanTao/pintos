@@ -34,16 +34,18 @@ process_execute (const char *file_name)
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
+  char fn_copy2[14];
+  memset(fn_copy2, 0, 14);
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (fn_copy2, file_name, PGSIZE);
 
   /* Argument Passing */
   /* Here f_name is the name of the command */
   char * f_name, *save_ptr;
-  f_name = strtok_r (file_name, " ", &save_ptr);
+  f_name = strtok_r (fn_copy2, " ", &save_ptr);
 
-  printf("f_name is: %s\n", f_name);
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (f_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
@@ -464,23 +466,21 @@ setup_stack (void **esp, const char *file_name)
       if (success){
         *esp = PHYS_BASE;
 
-        /* Count the number of arguments */
-        int argc = 0; // Number of arguments
         const int length = strlen(file_name);
         char fn_copy[length + 1];
         strlcpy(fn_copy, file_name, PGSIZE);
 
+        /* Count the number of arguments */
+        int argc = 0; // Number of arguments
         char *token, *save_ptr;
         char ** cmd_argvs = palloc_get_page(PAL_ZERO);  
         token = strtok_r (fn_copy, " ", &save_ptr);
         for (; token != NULL;
             token = strtok_r (NULL, " ", &save_ptr))
         {
-          printf("%s\n", token);
-          // printf("%d\n", token[strlen(token)]=='\n');
-          int length = strlen(token);
-          cmd_argvs[argc++] = token;
-          printf("1: %s\n", cmd_argvs[argc -1]);
+          char *token_copy = palloc_get_page(PAL_ZERO);
+          strlcpy(token_copy, token, strlen(token) + 1);
+          cmd_argvs[argc++] = token_copy;
         }
 
         char ** arg_addr = calloc (argc, sizeof(char *));
@@ -489,19 +489,15 @@ setup_stack (void **esp, const char *file_name)
         // Push the arguments onto the stack in reverse order
         for (int i = argc - 1; i >= 0; i--)
         {
-          printf("%s\n", cmd_argvs[i]);
           size_t token_length = strlen(cmd_argvs[i]);
           *esp -= (token_length + 1);
-          // printf("%s\n", *(char**)*esp);
-          printf("%s\n", cmd_argvs[i]);
-          strlcpy(*esp, cmd_argvs[i], token_length + 1);
-          // hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
+          memcpy(*esp, cmd_argvs[i], token_length + 1);
           arg_addr[i] = *esp;
         }
 
         palloc_free_page(cmd_argvs);
 
-        // Word alignment
+        // Word alignment 
         *esp = (void*)((unsigned int)(*esp) & 0xfffffffc);
 
         // Push a null pointer 0
@@ -512,8 +508,7 @@ setup_stack (void **esp, const char *file_name)
         for (int i = argc - 1; i >= 0; i--)
         {
           *esp -= sizeof(char *);
-          // memcpy (*esp, arg_addr + i, sizeof(char *));
-          *(char **) *esp = *(arg_addr + i);
+          memcpy (*esp, arg_addr + i, sizeof(char *));
         }
         
         free(arg_addr);
@@ -521,10 +516,12 @@ setup_stack (void **esp, const char *file_name)
         // Push a pointer to the first pointer
         *esp -= sizeof(char **);
         *(char**)*esp = (char *)*esp + sizeof(char **);
+        // memcpy(*esp, &(*esp + sizeof(char **)), sizeof(char **));
 
         // Push the number of arguments
         *esp -= sizeof(int);
-        *(int *) *esp = argc;
+        // *(int *) *esp = argc;
+        memcpy (*esp, &argc, sizeof(int));
 
         // Push a fake return address
         *esp -= sizeof(int);
