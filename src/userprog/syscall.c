@@ -162,6 +162,7 @@ static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
   }
 static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 
+/* Check if the file has a valid virtual address and call filesys_create to create the file.*/
 static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
 { 
   check_safe_memory_access((void *) file_name);
@@ -173,6 +174,7 @@ static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
   return (int) output; 
 }
 
+/* Check if the file has a valid virtual address and call filesys_remove to remove */
 static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
 {
   check_safe_memory_access((char *) file_name);
@@ -184,6 +186,8 @@ static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
   return (int) output; 
 }
 
+/* Open the file and add its file descriptor to the list of opened files 
+  of the current thread */
 int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
 { 
   check_safe_memory_access((char *) file_name); 
@@ -197,16 +201,20 @@ int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
   {
     lock_release(&filesys_lock);
     return -1;
-  }
+  } 
+  //Call filesys_open to open the file, if fails then return -1
 
   file_descriptor.file = file;
   file_descriptor.fd = cur -> fd_incrementor++;
+  // Set the file and fd in the file_descriptor to initialized fild
   list_push_back(&cur->file_descriptors, &file_descriptor.elem);
+  // Add the file_descriptor to the end of the opened filed of the current thread
 
   lock_release(&filesys_lock);
   return file_descriptor.fd;
 }
 
+/* Call file_length to return the file size */
 static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
   lock_acquire (&filesys_lock);
@@ -222,6 +230,7 @@ static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   return ret;
 }
 
+/* Read the file open as fd into buffe given the size bytes */
 static int sys_read_handler ( int fd, int buffer, int size)
 {
   for (int i = 0; i < size; i++)
@@ -236,13 +245,18 @@ static int sys_read_handler ( int fd, int buffer, int size)
     lock_release (&filesys_lock);
     return size;
   }
+  // read the file into buffer. 
 
   struct file * file = to_file(fd);
   int ret = file ? file_read(file, (char *) buffer, size) : -1;
+  //check if file exist.
 
   lock_release (&filesys_lock);
   return ret;
 }
+
+/* Get the file with the given fd and call file_seek to set the next
+  byte to a given position */
 static int sys_seek_handler (int fd, int position, int arg2 UNUSED) 
 { 
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
@@ -256,6 +270,8 @@ static int sys_seek_handler (int fd, int position, int arg2 UNUSED)
   lock_release (&filesys_lock);
   return 0; 
 }
+
+/* Return the position of the next byte to be read or written */
 static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
@@ -269,12 +285,15 @@ static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   lock_release (&filesys_lock);
   return 0;
 }
+
+/* Close the file and remove it from the list of threads that opens the file */
 static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
   lock_acquire (&filesys_lock);
   struct file_descriptor * file_descriptor = to_file_descriptor(fd);
   if (!file_descriptor)
     return 0;
+    //check if the file descriptor exist. 
 
   file_close (file_descriptor->file);
   list_remove (&file_descriptor->elem);

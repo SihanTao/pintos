@@ -11,9 +11,9 @@
 
 struct file_descriptor
 {
-    int fd;
-    struct file * file;
-    struct list_elem elem;
+    int fd;                 /* An incrementor used to indicate each call to the file */
+    struct file * file;     /* A pointer to the file indecated to */
+    struct list_elem elem;  /* Threads that opens the file */
 };
 
 void syscall_init (void);
