@@ -26,6 +26,7 @@ static int sys_write_handler ( int, int, int);
 static int sys_seek_handler ( int, int, int);
 static int sys_tell_handler ( int, int, int);
 static int sys_close_handler ( int, int, int);
+static struct file * to_file(int fd);
 
 static void syscall_handler (struct intr_frame *);
 
@@ -184,7 +185,6 @@ int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
 { 
   check_safe_memory_access((const void *) file_name); 
   struct file * file;
-  int ret;
   struct file_descriptor file_descriptor;
   struct thread * cur = thread_current();
 
@@ -209,3 +209,25 @@ static int sys_read_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 static int sys_seek_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_tell_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 static int sys_close_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+
+// pre : wrapped by file_system locks!
+// find file according to fd in current thread
+// if fd not exist, return NULL
+static struct file * to_file(int fd)
+{
+  struct thread * cur = thread_current();
+  struct list * fds = &cur->file_descriptors;
+  struct list_elem * e;
+  struct file_descriptor * file_descriptor;
+
+  for (e = list_begin(fds); e != list_end(fds) ; e = list_next(e))
+  {
+    file_descriptor = list_entry(e, struct file_descriptor, elem);
+    if (file_descriptor->fd == fd)
+    {
+      return file_descriptor->file;
+    }
+  }
+
+  return NULL;
+}
