@@ -252,7 +252,17 @@ static int sys_seek_handler (int fd, int position, int arg2 UNUSED)
   lock_release (&filesys_lock);
   return 0; 
 }
-static int sys_tell_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
+static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
+{ 
+  if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
+      return 0;
+
+  struct file *file = to_file (fd);
+  lock_acquire (&filesys_lock);
+  file_tell (file);
+  lock_release (&filesys_lock);
+  return 0;
+}
 static int sys_close_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 
 // pre : wrapped by file_system locks!
