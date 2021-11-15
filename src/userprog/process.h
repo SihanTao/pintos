@@ -21,7 +21,7 @@ struct process_load_status
   bool success;
 };
 
-struct process_state {
+struct process_child_state {
   bool exited;
   pid_t pid;
   int exit_status;
@@ -30,9 +30,6 @@ struct process_state {
 };
 
 tid_t process_execute (const char *file_name);
-tid_t process_execute_inner (const char *file_name,
-			     struct process_load_status *load_status UNUSED,
-			     struct process_state *state UNUSED);
 int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);

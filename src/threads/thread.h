@@ -105,8 +105,8 @@ struct thread
   uint32_t *pagedir; /* Page directory. */
 
   /* Used by userprog/syscall.c */
-  struct list list_of_child_process;
-  struct process_state *process_ref;
+  struct list list_of_children;
+  struct process_child_state *state;
 
   int fd_incrementor;
   struct list file_descriptors;

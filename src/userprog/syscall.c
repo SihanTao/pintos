@@ -156,8 +156,9 @@ static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
 {
   // might be concurrency problem
-  thread_current ()->process_ref->exit_status = exit_status;
-  thread_current ()->process_ref->exited = true;
+  struct process_child_state *state = thread_current ()->state;
+  state->exited = true;
+  state->exit_status = exit_status;
   process_exit ();
   return 0;
 }
@@ -169,29 +170,9 @@ static int sys_exec_handler ( int cmd_line, int arg1 UNUSED, int arg2 UNUSED)
     if (((char *)cmd_line)[i] != '\0')
       break;
   }
-  const char *cmd_line = (char *) cmd_line;
-  int pid;
-  struct process_load_status *status = malloc(sizeof(struct process_load_status));
-  struct process_state *child_state = calloc(1, sizeof(struct process_state));
-  // TODO : GTA : put it into thread or calloc which is better 
-  status->success = false;
-  sema_init (&status->done, 0);
-  
-  pid = process_execute_inner (cmd_line, status, child_state);
-  if (pid == TID_ERROR)
-    return -1;
-  
-  sema_down (&status->done);
 
-  if (!status->success)
-    return -1;
-
-  struct thread *t = thread_current ();
-  child_state->pid = pid;
-  child_state->exited = false;
-  list_push_back (&t->list_of_child_process, &child_state->elem);
-  
-  return pid;
+  const char *file_name = (char *) cmd_line;
+  return process_execute (file_name);
 }
 
 static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {

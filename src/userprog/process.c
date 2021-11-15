@@ -24,16 +24,18 @@
 #define push_stack(source) push_stack_size(&(source), sizeof (source))
 #define word_align(value) ((unsigned int)(value) & 0xfffffffc)
 
+#define MAX_FILENAME_LEN 14
 struct start_process_args
 {
-  struct process_load_status * load_status;
-  struct process_state * state;
-  char fn_copy[MAX_ARGV];
+  struct process_load_status load_status;
+  struct process_child_state * state;
+  char thread_name[MAX_FILENAME_LEN + 1];
+  char fn_copy[MAX_ARGV + 1];
 };
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-static struct process_state *pids_find_and_remove (struct list *l, pid_t pid);
+static struct process_child_state *pids_find_and_remove (struct list *l, pid_t pid);
 
 /* Passed as argument into start_process. 
    This struct is represented in a page, where load_status pointer is
@@ -51,38 +53,44 @@ static struct parse_arg_aux
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute(const char *file_name)
 {
-  printf("process_execute:...\n");
-  return process_execute_inner (file_name, NULL, NULL);
-}
-
-/* Same as above, except that it pass synchronisation mechanism 
-   into start_process to indicate when start_process has finish load*/
-tid_t
-process_execute_inner (const char *file_name, struct process_load_status *load_status,
-		       struct process_state *state) {
-  tid_t tid;
   struct start_process_args *process_args = palloc_get_page (0);
+  tid_t tid;
+  struct process_child_state *child_state = 
+                              calloc(1, sizeof (struct process_child_state));
+
   if (process_args == NULL)
     return TID_ERROR;
 
-  char thread_name_temp[16];
-  memset(thread_name_temp, 0, 16);
-  strlcpy (thread_name_temp, file_name, 15); // not sure 14 or 15 
-  char * thread_name, *save_ptr;
-  thread_name = strtok_r (thread_name_temp, " ", &save_ptr);
+  sema_init (&process_args->load_status.done, 0);
+  strlcpy (process_args->thread_name, file_name, MAX_FILENAME_LEN + 1);
+   // not sure 14 or 15 
+  process_args->thread_name[MAX_FILENAME_LEN] = '\0';
+  char * save_ptr;
+  strtok_r (process_args->thread_name, " ", &save_ptr);
+  // for (int i = 0; i < MAX_FILENAME_LEN; i++)
+  //   if (process_args->thread_name[i] == ' ')
+  //   {
+  //     process_args->thread_name[i] = '\0';
+  //     break;
+  //   }
 
-  process_args->load_status = load_status;
-  process_args->state = state;
+  process_args->state = child_state;
   strlcpy (process_args->fn_copy, file_name, MAX_ARGV);
   
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (thread_name, PRI_DEFAULT, start_process, process_args);
+  tid = thread_create (process_args->thread_name, PRI_DEFAULT, start_process, process_args);
   // PROBLEM: fn_copy and args may not be valid after this func return
-  if (tid == TID_ERROR)
+  if (tid == TID_ERROR) {
+    free (child_state);
     palloc_free_page (process_args); 
-  return tid;
+  }
+  sema_down (&process_args->load_status.done);
+
+  if (process_args->load_status.success)
+    list_push_back (&thread_current ()->list_of_children, &child_state->elem);
+  return process_args->load_status.success ? tid : -1;
 }
 
 /* A thread function that loads a user process and starts it
@@ -90,6 +98,7 @@ process_execute_inner (const char *file_name, struct process_load_status *load_s
 static void
 start_process (void *aux)
 {
+  // printf("name of sub process %s \n", thread_current () ->name);
   struct start_process_args *args = (struct start_process_args *) aux;
   struct intr_frame if_;
   bool success;
@@ -99,20 +108,13 @@ start_process (void *aux)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (&args->fn_copy, &if_.eip, &if_.esp);
+  success = load (args->fn_copy, &if_.eip, &if_.esp);
 
   /* if load_status is provided, assign success result into load_status 
      result, and then sema_up relevant semaphore */
-  if (args->load_status != NULL)
-  {
-    args->load_status->success = success;
-    sema_up (&args->load_status->done);
-  }
-
-  if (args->state != NULL)
-  {
-    thread_current ()->process_ref = args->state;
-  }
+  thread_current ()->state = args->state;
+  args->load_status.success = success;
+  sema_up (&args->load_status.done);
 
   palloc_free_page (args);
   /* If load failed, quit. */
@@ -143,8 +145,8 @@ int
 process_wait (tid_t child_tid UNUSED) 
 {
   for (;;);
-  struct process_state *child_state =
-    pids_find_and_remove (&thread_current()->list_of_child_process, child_tid);
+  struct process_child_state *child_state =
+    pids_find_and_remove (&thread_current()->list_of_children, child_tid);
 
   /* return -1 immediately when pid does not refer to direct child of 
      calling process, or porcess that calls wait has already called wait in pid */
@@ -596,15 +598,15 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
-static struct process_state *
+static struct process_child_state *
 pids_find_and_remove (struct list *l, pid_t pid) {
   if (list_empty (l))
     return NULL;
   
   for (struct list_elem *cur = list_front (l); cur != list_tail (l); cur = list_next (cur)) {
-    if (list_entry (cur, struct process_state, elem)->pid == pid) {
+    if (list_entry (cur, struct process_child_state, elem)->pid == pid) {
       list_remove (cur);
-      return list_entry (cur, struct process_state, elem);
+      return list_entry (cur, struct process_child_state, elem);
     }
   }
   return NULL;
