@@ -6,30 +6,17 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-#include "devices/input.h"
+#include "devices/shutdown.h"
 #include "threads/synch.h"
+#include "userprog/process.h"
+#include "threads/malloc.h"
+#include "devices/input.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 
 static struct lock filesys_lock;
 static struct lock fd_hash_lock;
 
-static int sys_halt_handler (int, int, int);
-static int sys_exit_handler ( int, int, int);
-static int sys_exec_handler ( int, int, int);
-static int sys_wait_handler ( int, int, int);
-static int sys_create_handler ( int, int, int);
-static int sys_remove_handler ( int, int, int);
-static int sys_open_handler ( int, int, int);
-static int sys_filesize_handler ( int, int, int);
-static int sys_read_handler ( int, int, int);
-static int sys_write_handler ( int, int, int);
-static int sys_seek_handler ( int, int, int);
-static int sys_tell_handler ( int, int, int);
-static int sys_close_handler ( int, int, int);
-static struct file * to_file(int fd);
-static struct file_descriptor * to_file_descriptor(int fd);
-static void* check_safe_memory_access(void* vaddr);
 
 static int sys_halt_handler (int, int, int);
 static int sys_exit_handler ( int, int, int);
@@ -44,6 +31,10 @@ static int sys_write_handler ( int, int, int);
 static int sys_seek_handler ( int, int, int);
 static int sys_tell_handler ( int, int, int);
 static int sys_close_handler ( int, int, int);
+
+static struct file * to_file(int fd);
+static struct file_descriptor * to_file_descriptor(int fd);
+static void* check_safe_memory_access(void* vaddr);
 
 
 static void syscall_handler (struct intr_frame *);
@@ -102,19 +93,14 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   void * stack_ptr = f->esp;
+  check_safe_memory_access(stack_ptr);
+
   int sys_argv[] = {0, 0, 0}; // must initialize to 0 !!!
-                              // don't change 
-
-  for (int i = 0; i < argc_syscall[i] + 1; i++){
+  int syscall_number = *(int32_t*) stack_ptr;
+  for (int i = 1; i < argc_syscall[syscall_number] + 1; i++)
     check_safe_memory_access(stack_ptr + i);
-  }
 
-  int syscall_number = *(int*) stack_ptr;
-  // struct thread * cur = thread_current();
   resolve_syscall_stack (argc_syscall[syscall_number], stack_ptr, sys_argv);
-
-  // printf("*esp = %d, from %s thread, id == %d\n", syscall_number, cur->name, cur->tid);
-
   f->eax = syscall_funcs[syscall_number](sys_argv[0], sys_argv[1], sys_argv[2]);
 }
 
@@ -141,13 +127,6 @@ void* check_safe_memory_access(void* vaddr)
   
 }
 
-int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
-{
-  // printf("%s: exit(%d)\n", thread_current()->name, 0);
-  thread_exit ();
-  // not sure what to do
-  return 0;
-}
 
 static int sys_write_handler ( int fd, int buffer, int size)
 {
@@ -167,16 +146,52 @@ static int sys_write_handler ( int fd, int buffer, int size)
   return file_write(file, (const void *) buffer, (off_t) size);
 }
 
-static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {
-  sys_exit_handler(0, 0, 0);
+static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
+{
+  shutdown_power_off ();
   return 0;
 }
-static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) 
-  {
-    return 0;
-  }
-static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) { return 0; }
 
+int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
+{
+  thread_current ()->process_ref->exit_status = arg0;
+  thread_current ()->process_ref->exited = true;
+  process_exit ();
+  return 0;
+}
+
+static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) 
+{
+  const char *cmd_line = (char *) arg0;
+  int pid;
+  struct process_load_status status;
+  struct process_state *child_state = calloc(1, sizeof(struct process_state));
+  sema_init (&status.done, 0);
+  
+  pid = process_execute_inner (cmd_line, &status, child_state);
+  if (pid == TID_ERROR)
+    return -1;
+  
+  sema_down (&status.done);
+
+  if (!status.success)
+    return -1;
+
+  struct thread *t = thread_current ();
+  child_state->pid = pid;
+  child_state->exited = false;
+  list_push_back (&t->list_of_child_process, &child_state->elem);
+  
+  return pid;
+}
+
+static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {
+  tid_t pid = (tid_t) arg0;
+  return process_wait (pid);
+}
+
+
+/* Check if the file has a valid virtual address and call filesys_create to create the file.*/
 static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
 { 
   check_safe_memory_access((void *) file_name);
@@ -188,6 +203,7 @@ static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
   return (int) output; 
 }
 
+/* Check if the file has a valid virtual address and call filesys_remove to remove */
 static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
 {
   check_safe_memory_access((char *) file_name);
@@ -199,11 +215,19 @@ static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
   return (int) output; 
 }
 
+/* Open the file and add its file descriptor to the list of opened files 
+  of the current thread */
 int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
 { 
   check_safe_memory_access((char *) file_name); 
   struct file * file;
-  struct file_descriptor file_descriptor;
+  struct file_descriptor * file_descriptor = 
+                    malloc(sizeof (struct file_descriptor)); 
+                    // we can use malloc here, since memory in userspace
+                    // is enough for use
+  if (!file_descriptor)
+    sys_exit_handler(-1, -1, -1);
+
   struct thread * cur = thread_current();
 
   lock_acquire(&filesys_lock);
@@ -212,16 +236,20 @@ int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
   {
     lock_release(&filesys_lock);
     return -1;
-  }
+  } 
+  //Call filesys_open to open the file, if fails then return -1
 
-  file_descriptor.file = file;
-  file_descriptor.fd = cur -> fd_incrementor++;
-  list_push_back(&cur->file_descriptors, &file_descriptor.elem);
+  file_descriptor->file = file;
+  file_descriptor->fd = cur -> fd_incrementor++;
+  // Set the file and fd in the file_descriptor to initialized fild
+  list_push_back(&cur->file_descriptors, &file_descriptor->elem);
+  // Add the file_descriptor to the end of the opened filed of the current thread
 
   lock_release(&filesys_lock);
-  return file_descriptor.fd;
+  return file_descriptor->fd;
 }
 
+/* Call file_length to return the file size */
 static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
   lock_acquire (&filesys_lock);
@@ -237,6 +265,7 @@ static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   return ret;
 }
 
+/* Read the file open as fd into buffe given the size bytes */
 static int sys_read_handler ( int fd, int buffer, int size)
 {
   for (int i = 0; i < size; i++)
@@ -251,13 +280,18 @@ static int sys_read_handler ( int fd, int buffer, int size)
     lock_release (&filesys_lock);
     return size;
   }
+  // read the file into buffer. 
 
   struct file * file = to_file(fd);
   int ret = file ? file_read(file, (char *) buffer, size) : -1;
+  //check if file exist.
 
   lock_release (&filesys_lock);
   return ret;
 }
+
+/* Get the file with the given fd and call file_seek to set the next
+  byte to a given position */
 static int sys_seek_handler (int fd, int position, int arg2 UNUSED) 
 { 
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
@@ -271,6 +305,8 @@ static int sys_seek_handler (int fd, int position, int arg2 UNUSED)
   lock_release (&filesys_lock);
   return 0; 
 }
+
+/* Return the position of the next byte to be read or written */
 static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
@@ -284,12 +320,15 @@ static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   lock_release (&filesys_lock);
   return 0;
 }
+
+/* Close the file and remove it from the list of threads that opens the file */
 static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
   lock_acquire (&filesys_lock);
   struct file_descriptor * file_descriptor = to_file_descriptor(fd);
   if (!file_descriptor)
     return 0;
+    //check if the file descriptor exist. 
 
   file_close (file_descriptor->file);
   list_remove (&file_descriptor->elem);
@@ -314,6 +353,8 @@ inline struct file_descriptor * to_file_descriptor(int fd)
 {
   struct thread * cur = thread_current();
   struct list * fds = &cur->file_descriptors;
+  if (fd == STDIN_FILENO || fd == STDOUT_FILENO || list_empty (fds))
+    sys_exit_handler(-1, -1, -1);
   struct list_elem * e;
   struct file_descriptor * file_descriptor;
 

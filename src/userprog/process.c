@@ -26,8 +26,20 @@
 #define push_stack(source) push_stack_size(&(source), sizeof (source))
 #define word_align(value) ((unsigned int)(value) & 0xfffffffc)
 
+struct start_process_args
+{
+  struct process_load_status * load_status;
+  struct process_state * state;
+  char fn_copy[MAX_ARGV];
+};
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static struct process_state *pids_find_and_remove (struct list *l, pid_t pid);
+
+/* Passed as argument into start_process. 
+   This struct is represented in a page, where load_status pointer is
+   copied into first 4 byte, and file_name occupy the remaining of the page*/
 
 static struct parse_arg_aux
 {
@@ -43,38 +55,44 @@ static struct parse_arg_aux
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
-  tid_t tid;
+  printf("process_execute:...\n");
+  return process_execute_inner (file_name, NULL, NULL);
+}
 
-  /* Make a copy of FILE_NAME.
-     Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
+/* Same as above, except that it pass synchronisation mechanism 
+   into start_process to indicate when start_process has finish load*/
+tid_t
+process_execute_inner (const char *file_name, struct process_load_status *load_status UNUSED,
+		       struct process_state *state UNUSED) {
+  tid_t tid;
+  struct start_process_args *process_args = palloc_get_page (0);
+  if (process_args == NULL)
+    return TID_ERROR;
+
   char fn_copy2[14];
   memset(fn_copy2, 0, 14);
-  if (fn_copy == NULL)
-    return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
   strlcpy (fn_copy2, file_name, PGSIZE);
-
-  /* Argument Passing */
-  /* Here f_name is the name of the command */
   char * f_name, *save_ptr;
   f_name = strtok_r (fn_copy2, " ", &save_ptr);
 
+  process_args->load_status = load_status;
+  process_args->state = state;
+  strlcpy (process_args->fn_copy, file_name, PGSIZE);
+  
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (f_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (f_name, PRI_DEFAULT, start_process, process_args);
+  // PROBLEM: fn_copy and args may not be valid after this func return
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (process_args); 
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *aux)
 {
-  char *file_name = file_name_;
-  printf("File name is: %s\n", file_name);
+  struct start_process_args *args = (struct start_process_args *) aux;
   struct intr_frame if_;
   bool success;
 
@@ -83,10 +101,23 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (&args->fn_copy, &if_.eip, &if_.esp);
+
+  /* if load_status is provided, assign success result into load_status 
+     result, and then sema_up relevant semaphore */
+  if (args->load_status != NULL)
+  {
+    args->load_status->success = success;
+    sema_up (&args->load_status->done);
+  }
+
+  if (args->state != NULL)
+  {
+    thread_current ()->process_ref = args->state;
+  }
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (args);
   if (!success) 
     thread_exit ();
 
@@ -94,7 +125,8 @@ start_process (void *file_name_)
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
      arguments on the stack in the form of a `struct intr_frame',
-     we just point the stack pointer (%esp) to our stack frame
+  
+   we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
@@ -112,13 +144,20 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while (true)
-  {
-    /* pass */
-    ;
-  }
+  for (;;);
+  struct process_state *child_state =
+    pids_find_and_remove (&thread_current()->list_of_child_process, child_tid);
+
+  /* return -1 immediately when pid does not refer to direct child of 
+     calling process, or porcess that calls wait has already called wait in pid */
+  if (child_state == NULL)
+    return -1;
+
+  /* Wait until child process_return */
+  // TODO: Implement using semaphore
+  while (child_state->exited == false) {}
   
-  return -1;
+  return child_state->exit_status;
 }
 
 /* Free the current process's resources. */
@@ -471,6 +510,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp, const char *file_name) 
 {
+  printf("inside setup stack\n");
   uint8_t *kpage;
   bool success = false;
 
@@ -509,8 +549,6 @@ setup_stack (void **esp, const char *file_name)
         {
           size_t token_length = strlen(parse_arg_aux->ptrs_to_argvs[i]);
           push_stack_size(parse_arg_aux->ptrs_to_argvs[i], token_length + 1);
-          // *esp -= (token_length + 1);
-          // memcpy(*esp, parse_arg_aux->ptrs_to_argvs[i], token_length + 1);
           arg_addr[i] = *esp;
         }
 
@@ -558,4 +596,18 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+static struct process_state *
+pids_find_and_remove (struct list *l, pid_t pid) {
+  if (list_empty (l))
+    return NULL;
+  
+  for (struct list_elem *cur = list_front (l); cur != list_tail (l); cur = list_next (cur)) {
+    if (list_entry (cur, struct process_state, elem)->pid == pid) {
+      list_remove (cur);
+      return list_entry (cur, struct process_state, elem);
+    }
+  }
+  return NULL;
 }
