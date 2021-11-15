@@ -15,7 +15,6 @@
 #include "filesys/file.h"
 
 static struct lock filesys_lock;
-static struct lock fd_hash_lock;
 
 
 static int sys_halt_handler (int, int, int);
@@ -85,7 +84,6 @@ void
 syscall_init (void) 
 {
   lock_init(&filesys_lock);
-  lock_init(&fd_hash_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -112,7 +110,8 @@ void* check_safe_memory_access(void* vaddr)
 {
   struct thread * cur = thread_current();
 
-  if (!is_user_vaddr(vaddr)) {
+  // TODO : ASK GTA is null ptr valid ?
+  if (!is_user_vaddr(vaddr) || vaddr == NULL) {
     thread_exit();
   }
 
@@ -130,6 +129,8 @@ void* check_safe_memory_access(void* vaddr)
 
 static int sys_write_handler ( int fd, int buffer, int size)
 {
+  check_safe_memory_access((void *) buffer);
+
   if (fd == STDOUT_FILENO)
   {
     putbuf((char *) buffer, (size_t) size);
@@ -152,29 +153,37 @@ static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
   return 0;
 }
 
-int sys_exit_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
+int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
 {
-  thread_current ()->process_ref->exit_status = arg0;
+  // might be concurrency problem
+  thread_current ()->process_ref->exit_status = exit_status;
   thread_current ()->process_ref->exited = true;
   process_exit ();
   return 0;
 }
 
-static int sys_exec_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) 
+static int sys_exec_handler ( int cmd_line, int arg1 UNUSED, int arg2 UNUSED) 
 {
-  const char *cmd_line = (char *) arg0;
+  for (int i = 0; i < MAX_ARGV; i++){
+    check_safe_memory_access(cmd_line + i);
+    if (((char *)cmd_line)[i] != '\0')
+      break;
+  }
+  const char *cmd_line = (char *) cmd_line;
   int pid;
-  struct process_load_status status;
+  struct process_load_status *status = malloc(sizeof(struct process_load_status));
   struct process_state *child_state = calloc(1, sizeof(struct process_state));
-  sema_init (&status.done, 0);
+  // TODO : GTA : put it into thread or calloc which is better 
+  status->success = false;
+  sema_init (&status->done, 0);
   
-  pid = process_execute_inner (cmd_line, &status, child_state);
+  pid = process_execute_inner (cmd_line, status, child_state);
   if (pid == TID_ERROR)
     return -1;
   
-  sema_down (&status.done);
+  sema_down (&status->done);
 
-  if (!status.success)
+  if (!status->success)
     return -1;
 
   struct thread *t = thread_current ();
@@ -332,6 +341,9 @@ static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 
   file_close (file_descriptor->file);
   list_remove (&file_descriptor->elem);
+  free(file_descriptor);
+  // thread exit -> need to free all file descriptors
+  // and child state
   lock_release (&filesys_lock);
 
   return 0;

@@ -18,8 +18,6 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-#define MAX_ARGC 128
-#define MAX_ARGV 512
 #define push_stack_size(source, size) \
         do {*esp -= (size);\
             memcpy(*esp, (source), (size));} while (0)
@@ -62,25 +60,25 @@ process_execute (const char *file_name)
 /* Same as above, except that it pass synchronisation mechanism 
    into start_process to indicate when start_process has finish load*/
 tid_t
-process_execute_inner (const char *file_name, struct process_load_status *load_status UNUSED,
-		       struct process_state *state UNUSED) {
+process_execute_inner (const char *file_name, struct process_load_status *load_status,
+		       struct process_state *state) {
   tid_t tid;
   struct start_process_args *process_args = palloc_get_page (0);
   if (process_args == NULL)
     return TID_ERROR;
 
-  char fn_copy2[14];
-  memset(fn_copy2, 0, 14);
-  strlcpy (fn_copy2, file_name, PGSIZE);
-  char * f_name, *save_ptr;
-  f_name = strtok_r (fn_copy2, " ", &save_ptr);
+  char thread_name_temp[16];
+  memset(thread_name_temp, 0, 16);
+  strlcpy (thread_name_temp, file_name, 15); // not sure 14 or 15 
+  char * thread_name, *save_ptr;
+  thread_name = strtok_r (thread_name_temp, " ", &save_ptr);
 
   process_args->load_status = load_status;
   process_args->state = state;
-  strlcpy (process_args->fn_copy, file_name, PGSIZE);
+  strlcpy (process_args->fn_copy, file_name, MAX_ARGV);
   
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (f_name, PRI_DEFAULT, start_process, process_args);
+  tid = thread_create (thread_name, PRI_DEFAULT, start_process, process_args);
   // PROBLEM: fn_copy and args may not be valid after this func return
   if (tid == TID_ERROR)
     palloc_free_page (process_args); 
@@ -116,8 +114,8 @@ start_process (void *aux)
     thread_current ()->process_ref = args->state;
   }
 
-  /* If load failed, quit. */
   palloc_free_page (args);
+  /* If load failed, quit. */
   if (!success) 
     thread_exit ();
 

@@ -13,6 +13,8 @@
 
 typedef tid_t pid_t;
 
+#define MAX_ARGC 128
+#define MAX_ARGV 512 // not sure about length
 struct process_load_status
 {
   struct semaphore done;
@@ -20,11 +22,11 @@ struct process_load_status
 };
 
 struct process_state {
-  pid_t pid;
   bool exited;
+  pid_t pid;
   int exit_status;
-  struct list_elem elem;
   struct thread *child;
+  struct list_elem elem;
 };
 
 tid_t process_execute (const char *file_name);
