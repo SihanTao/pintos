@@ -58,7 +58,7 @@ process_execute(const char *file_name)
   struct start_process_args *process_args = palloc_get_page (0);
   tid_t tid;
   struct process_child_state *child_state = 
-                              calloc(1, sizeof (struct process_child_state));
+                              palloc_get_page(0);
 
   if (process_args == NULL)
     return TID_ERROR;
@@ -81,15 +81,20 @@ process_execute(const char *file_name)
   
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (process_args->thread_name, PRI_DEFAULT, start_process, process_args);
+
   // PROBLEM: fn_copy and args may not be valid after this func return
   if (tid == TID_ERROR) {
-    free (child_state);
+    // free (child_state);
+    // TODO : this is a palloc now
     palloc_free_page (process_args); 
   }
   sema_down (&process_args->load_status.done);
 
   if (process_args->load_status.success)
     list_push_back (&thread_current ()->list_of_children, &child_state->elem);
+
+  struct list * l = &thread_current() -> list_of_children;
+
   return process_args->load_status.success ? tid : -1;
 }
 
@@ -98,7 +103,6 @@ process_execute(const char *file_name)
 static void
 start_process (void *aux)
 {
-  // printf("name of sub process %s \n", thread_current () ->name);
   struct start_process_args *args = (struct start_process_args *) aux;
   struct intr_frame if_;
   bool success;
@@ -108,11 +112,15 @@ start_process (void *aux)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+  // TODO: need lock
   success = load (args->fn_copy, &if_.eip, &if_.esp);
 
   /* if load_status is provided, assign success result into load_status 
      result, and then sema_up relevant semaphore */
   thread_current ()->state = args->state;
+  args->state->exited = false;
+  args->state->pid = thread_current () ->tid;
+  args->state->exit_status = -1;
   args->load_status.success = success;
   sema_up (&args->load_status.done);
 
@@ -142,22 +150,29 @@ start_process (void *aux)
  * This function will be implemented in task 2.
  * For now, it does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  for (;;);
   struct process_child_state *child_state =
     pids_find_and_remove (&thread_current()->list_of_children, child_tid);
 
   /* return -1 immediately when pid does not refer to direct child of 
      calling process, or porcess that calls wait has already called wait in pid */
-  if (child_state == NULL)
+  if (child_state == NULL){
     return -1;
+  }
+
 
   /* Wait until child process_return */
   // TODO: Implement using semaphore
-  while (child_state->exited == false) {}
+
+  while (child_state->exited == false) {
+    printf("process_wait_loop\n");
+  }
+
+  int exit_status = child_state->exit_status;
+
   
-  return child_state->exit_status;
+  return exit_status;
 }
 
 /* Free the current process's resources. */
@@ -311,7 +326,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
       goto done; 
     }
 
@@ -510,7 +524,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp, const char *file_name) 
 {
-  printf("inside setup stack\n");
   uint8_t *kpage;
   bool success = false;
 
@@ -574,7 +587,7 @@ setup_stack (void **esp, const char *file_name)
       else
         palloc_free_page (kpage);
     }
-  hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
+  //hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
   return success;
 }
 
@@ -600,13 +613,16 @@ install_page (void *upage, void *kpage, bool writable)
 
 static struct process_child_state *
 pids_find_and_remove (struct list *l, pid_t pid) {
-  if (list_empty (l))
+  if (list_empty (l)){
     return NULL;
+
+  }
   
-  for (struct list_elem *cur = list_front (l); cur != list_tail (l); cur = list_next (cur)) {
-    if (list_entry (cur, struct process_child_state, elem)->pid == pid) {
+  for (struct list_elem *cur = list_begin (l); cur != list_end (l); cur = list_next (cur)) {
+    struct process_child_state * child_state = list_entry (cur, struct process_child_state, elem);
+    if (child_state->pid == pid) {
       list_remove (cur);
-      return list_entry (cur, struct process_child_state, elem);
+      return child_state;
     }
   }
   return NULL;

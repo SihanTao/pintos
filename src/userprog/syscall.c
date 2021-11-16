@@ -156,10 +156,15 @@ static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
 {
   // might be concurrency problem
+
   struct process_child_state *state = thread_current ()->state;
   state->exited = true;
+
   state->exit_status = exit_status;
-  process_exit ();
+  printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
+
+  thread_exit ();
+
   return 0;
 }
 
@@ -175,9 +180,8 @@ static int sys_exec_handler ( int cmd_line, int arg1 UNUSED, int arg2 UNUSED)
   return process_execute (file_name);
 }
 
-static int sys_wait_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED) {
-  tid_t pid = (tid_t) arg0;
-  return process_wait (pid);
+static int sys_wait_handler ( int pid, int arg1 UNUSED, int arg2 UNUSED) {
+  return process_wait ((tid_t) pid);
 }
 
 

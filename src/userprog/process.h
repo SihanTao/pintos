@@ -25,7 +25,6 @@ struct process_child_state {
   bool exited;
   pid_t pid;
   int exit_status;
-  struct thread *child;
   struct list_elem elem;
 };
 
