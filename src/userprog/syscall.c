@@ -90,6 +90,7 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  
   void * stack_ptr = f->esp;
   check_safe_memory_access(stack_ptr);
 
@@ -119,7 +120,8 @@ void* check_safe_memory_access(void* vaddr)
 
   if (kaddr == NULL)
   {
-    thread_exit();
+    sys_exit_handler(-1, NULL, NULL);
+    //thread_exit();
   }
 
   return kaddr;
