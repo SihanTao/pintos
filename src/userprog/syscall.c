@@ -14,7 +14,6 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 
-static struct lock filesys_lock;
 
 
 static int sys_halt_handler (int, int, int);
@@ -174,10 +173,12 @@ int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
   // might be concurrency problem
 
   struct process_child_state *state = thread_current ()->state;
+  // lock_acquire(&state->lock);
   state->exited = true;
-
   state->exit_status = exit_status;
-  sema_up (&state->wait_sema);
+  // lock_release(&state->lock);
+  
+
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
 
 

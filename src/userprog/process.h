@@ -22,7 +22,9 @@ struct process_load_status
 };
 
 struct process_child_state {
+  struct lock lock;
   bool exited;
+  bool parent_exited;
   pid_t pid;
   int exit_status;
   struct list_elem elem;

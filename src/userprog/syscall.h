@@ -9,6 +9,9 @@
 #include "../threads/vaddr.h"
 #include <list.h>
 
+struct lock filesys_lock;
+
+
 struct file_descriptor
 {
     int fd;                 /* An incrementor used to indicate each call to the file */

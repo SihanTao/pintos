@@ -17,6 +17,8 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
+#include <list.h>
 
 #define push_stack_size(source, size) \
         do {*esp -= (size);\
@@ -36,6 +38,11 @@ struct start_process_args
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 static struct process_child_state *pids_find_and_remove (struct list *l, pid_t pid);
+static void
+free_file_descriptors (struct thread *t);
+
+static void
+free_list_of_children (struct thread *t);
 
 /* Passed as argument into start_process. 
    This struct is represented in a page, where load_status pointer is
@@ -57,8 +64,7 @@ process_execute(const char *file_name)
 {
   struct start_process_args *process_args = palloc_get_page (0);
   tid_t tid;
-  struct process_child_state *child_state = 
-                              palloc_get_page(0);
+  struct process_child_state *child_state = malloc(sizeof(struct process_child_state));
 
   if (process_args == NULL)
     return TID_ERROR;
@@ -70,12 +76,6 @@ process_execute(const char *file_name)
   process_args->thread_name[MAX_FILENAME_LEN] = '\0';
   char * save_ptr;
   strtok_r (process_args->thread_name, " ", &save_ptr);
-  // for (int i = 0; i < MAX_FILENAME_LEN; i++)
-  //   if (process_args->thread_name[i] == ' ')
-  //   {
-  //     process_args->thread_name[i] = '\0';
-  //     break;
-  //   }
 
   process_args->state = child_state;
   strlcpy (process_args->fn_copy, file_name, MAX_ARGV);
@@ -85,8 +85,7 @@ process_execute(const char *file_name)
 
   // PROBLEM: fn_copy and args may not be valid after this func return
   if (tid == TID_ERROR) {
-    // free (child_state);
-    // TODO : this is a palloc now
+    free (child_state);
     palloc_free_page (process_args); 
   }
   sema_down (&process_args->load_status.done);
@@ -117,7 +116,10 @@ start_process (void *aux)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   // TODO: need lock
+  lock_acquire(&filesys_lock);
   success = load (args->fn_copy, &if_.eip, &if_.esp);
+  lock_release(&filesys_lock);
+
 
   /* if load_status is provided, assign success result into load_status 
      result, and then sema_up relevant semaphore */
@@ -205,9 +207,30 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  struct process_child_state* state =  cur->state;
+
+  sema_up (&state->wait_sema);
+
+  // lock_acquire(&state->lock);
+  if (state->parent_exited) {
+    // lock_release(&state->lock);
+    free (cur->state);
+  }
+  // lock_release(&state->lock);
+
+
+  lock_acquire(&filesys_lock);
   if (cur->exec_file != NULL)
     file_allow_write(cur->exec_file);
   file_close(cur->exec_file);
+  lock_release(&filesys_lock);
+
+
+
+
+
+  free_file_descriptors(cur);
+  free_list_of_children(cur);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -640,4 +663,32 @@ pids_find_and_remove (struct list *l, pid_t pid) {
     }
   }
   return NULL;
+}
+
+static void
+free_file_descriptors (struct thread *t)
+{
+  while (!list_empty (&t->file_descriptors)) {
+    struct list_elem *e = list_pop_front (&t->file_descriptors);
+    struct file_descriptor *desciptor = list_entry (e, struct file_descriptor, elem);
+    lock_acquire(&filesys_lock);
+    file_close (desciptor->file);
+    lock_release(&filesys_lock);
+
+    free (desciptor);
+  }
+}
+
+static void
+free_list_of_children (struct thread *t)
+{
+  while (!list_empty (&t->list_of_children)) {
+    struct list_elem *e = list_pop_front (&t->list_of_children);
+    struct process_child_state *state = list_entry (e, struct process_child_state, elem);
+
+    state->parent_exited = true;
+    if (state->exited) {
+      free (state);
+    };
+  }
 }
