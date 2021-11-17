@@ -201,7 +201,7 @@ static int sys_wait_handler ( int pid, int arg1 UNUSED, int arg2 UNUSED) {
 static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
 { 
 
-  // printf("inside create! \n");
+  printf("inside create! \n");
   check_safe_memory_access((void *) file_name);
   for (int i = 0; i < MAX_ARGV; i++){
     check_safe_memory_access(file_name + i);
@@ -209,11 +209,18 @@ static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
       break;
   }
 
+  printf("middle create \n");
+
 
   lock_acquire(&filesys_lock);
+
+    printf("lock acquired \n");
+
   bool output = filesys_create((const char *) file_name, (off_t) size);
   lock_release(&filesys_lock);
   
+  printf("exiting create with value %d \n", output);
+
   return (int) output; 
 }
 

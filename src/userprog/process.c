@@ -166,7 +166,7 @@ process_wait (tid_t child_tid)
   // TODO: Implement using semaphore
 
   while (child_state->exited == false) {
-    printf("process_wait_loop\n");
+    // printf("process_wait_loop\n");
   }
 
   int exit_status = child_state->exit_status;
