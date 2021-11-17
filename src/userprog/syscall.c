@@ -72,6 +72,7 @@ static int argc_syscall[] =
     [SYS_CLOSE] = 1
   };
 
+/* Add all the arguments from stack to output buffer */
 static void resolve_syscall_stack (int argc, void * stack_pointer, int * output)
 {
   for (int i = 0; i < argc; i++){
@@ -86,6 +87,7 @@ syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
+/* */
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
@@ -122,14 +124,14 @@ void* check_safe_memory_access(void* vaddr)
   if (!is_user_vaddr(vaddr) || vaddr == NULL) {
         // printf("check safe access called! \n");
 
-    sys_exit_handler(-1, NULL, NULL);
+    sys_exit_handler(-1, 0, 0);
   }
 
   void * kaddr = pagedir_get_page(cur->pagedir, vaddr);
 
   if (kaddr == NULL)
   {
-    sys_exit_handler(-1, NULL, NULL);
+    sys_exit_handler(-1, 0, 0);
     //thread_exit();
   }
 
@@ -188,7 +190,7 @@ int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
 static int sys_exec_handler ( int cmd_line, int arg1 UNUSED, int arg2 UNUSED) 
 {
   for (int i = 0; i < MAX_ARGV; i++){
-    check_safe_memory_access(cmd_line + i);
+    check_safe_memory_access((char *)cmd_line + i);
     if (((char *)cmd_line)[i] != '\0')
       break;
   }
@@ -209,7 +211,7 @@ static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
   // printf("inside create! \n");
   check_safe_memory_access((void *) file_name);
   for (int i = 0; i < MAX_ARGV; i++){
-    check_safe_memory_access(file_name + i);
+    check_safe_memory_access((char *)file_name + i);
     if (((char *)file_name)[i] != '\0')
       break;
   }
@@ -418,4 +420,5 @@ inline struct file_descriptor * to_file_descriptor(int fd)
 int exit_wrapper(int status)
 {
   sys_exit_handler(status, 0, 0);
+  NOT_REACHED ();
 }
