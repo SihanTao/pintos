@@ -433,7 +433,7 @@ thread_exit (void)
   intr_disable ();
   list_remove (&thread_current ()->allelem);
 
-  printf("%s exited", thread_current()->name);
+  // printf("%s exited", thread_current()->name);
 
 
 
