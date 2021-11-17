@@ -65,7 +65,7 @@ static struct process_child_state * init_child_state(void)
 
   child_state->pid = thread_current () -> tid;
   child_state->parent_exited = false;
-  child_state->exited = false;
+  child_state->child_exited = false;
   child_state->exit_status = 0;
   sema_init(&child_state->wait_sema, 0);
   lock_init(&child_state->lock);
@@ -141,7 +141,7 @@ start_process (void *aux)
   /* if load_status is provided, assign success result into load_status 
      result, and then sema_up relevant semaphore */
   thread_current ()->state = args->state;
-  args->state->exited = false;
+  args->state->child_exited = false;
   args->state->pid = thread_current () ->tid;
   args->state->exit_status = -1;
   sema_up (&args->load_status.done);
@@ -222,7 +222,7 @@ process_exit (void)
 
 
   lock_acquire(&state->lock);
-  state->exited = true;
+  state->child_exited = true;
   if (state->parent_exited) {
     lock_release(&state->lock);
     free (cur->state);
@@ -710,7 +710,7 @@ free_list_of_children (struct thread *t)
     // reading and writing state, thus locked
     lock_acquire(&state->lock);
     state->parent_exited = true;
-    if (state->exited) {
+    if (state->child_exited) {
       free (state);
     };
     lock_release(&state->lock);
