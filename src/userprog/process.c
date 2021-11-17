@@ -91,7 +91,7 @@ process_execute(const char *file_name)
 
   sema_init (&process_args->load_status.done, 0);
   strlcpy (process_args->thread_name, file_name, MAX_FILENAME_LEN + 1);
-  process_args->thread_name[MAX_FILENAME_LEN] = '\0';
+  // process_args->thread_name[MAX_FILENAME_LEN] = '\0';
   char * save_ptr;
   strtok_r (process_args->thread_name, " ", &save_ptr);
 
@@ -111,9 +111,11 @@ process_execute(const char *file_name)
   if (process_args->load_status.success) {
     list_push_back (&thread_current ()->list_of_children, &child_state->elem);
   } else {
+    // Why not just return TID_ERROR
     tid = -1;
   }
 
+  // Is it unused?
   struct list * l = &thread_current() -> list_of_children;
   palloc_free_page(process_args);
   return tid;
@@ -222,13 +224,15 @@ process_exit (void)
     }
   struct process_child_state* state =  cur->state;
 
-  sema_up (&state->wait_sema);
 
   lock_acquire(&state->lock);
+  state->exited = true;
   if (state->parent_exited) {
+    lock_release(&state->lock);
     free (cur->state);
+  } else {
+    lock_release(&state->lock);
   }
-  lock_release(&state->lock);
 
 
   lock_acquire(&filesys_lock);
@@ -239,6 +243,8 @@ process_exit (void)
 
   free_file_descriptors(cur);
   free_list_of_children(cur);
+
+  sema_up (&state->wait_sema);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -379,7 +385,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
       if (file_ofs < 0 || file_ofs > file_length (file))
         goto done;
       file_seek (file, file_ofs);
-
       if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
         goto done;
       file_ofs += sizeof phdr;

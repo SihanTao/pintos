@@ -174,11 +174,9 @@ int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
 
   struct process_child_state *state = thread_current ()->state;
   lock_acquire(&state->lock);
-  state->exited = true;
   state->exit_status = exit_status;
   lock_release(&state->lock);
   
-
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
 
 
@@ -276,7 +274,7 @@ int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
   list_push_back(&cur->file_descriptors, &file_descriptor->elem);
   // Add the file_descriptor to the end of the opened filed of the current thread
 
-
+  // st2220: can move the lock release to line 269
   lock_release(&filesys_lock);
   return file_descriptor->fd;
 }
@@ -293,6 +291,7 @@ static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   }
 
   int ret = file_length(file);
+  // st2220: can move the lock release to 287 as file is retrieved as a local variable
   lock_release (&filesys_lock);
   return ret;
 }
@@ -364,6 +363,7 @@ static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
   lock_acquire (&filesys_lock);
+  // st2220: Check the place we write to file_descriptor, do we need a lock in thread for the list of file descriptors
   struct file_descriptor * file_descriptor = to_file_descriptor(fd);
   if (!file_descriptor) {
     // printf("file close, fd not found! \n");
