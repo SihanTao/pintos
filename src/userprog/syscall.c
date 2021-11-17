@@ -275,16 +275,16 @@ int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
 /* Call file_length to return the file size */
 static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
-  lock_acquire (&filesys_lock);
+  //lock_acquire (&filesys_lock);
   struct file * file = to_file(fd);
 
   if(file== NULL) {
-    lock_release (&filesys_lock);
+    //lock_release (&filesys_lock);
     return -1;
   }
 
   int ret = file_length(file);
-  lock_release (&filesys_lock);
+  //lock_release (&filesys_lock);
   return ret;
 }
 
@@ -294,13 +294,13 @@ static int sys_read_handler ( int fd, int buffer, int size)
   for (int i = 0; i < size; i++)
     check_safe_memory_access((char *) buffer + i);
 
-  lock_acquire (&filesys_lock);
+  //lock_acquire (&filesys_lock);
 
   if(fd == STDIN_FILENO) 
   {
     for(int i = 0; i < size; i++)
       ((char *) buffer)[i] = input_getc();
-    lock_release (&filesys_lock);
+    //lock_release (&filesys_lock);
     return size;
   }
   // read the file into buffer. 
@@ -309,7 +309,7 @@ static int sys_read_handler ( int fd, int buffer, int size)
   int ret = file ? file_read(file, (char *) buffer, size) : -1;
   //check if file exist.
 
-  lock_release (&filesys_lock);
+  //lock_release (&filesys_lock);
   return ret;
 }
 
@@ -320,12 +320,12 @@ static int sys_seek_handler (int fd, int position, int arg2 UNUSED)
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
       return 0;
 
-  lock_acquire (&filesys_lock);
+  //lock_acquire (&filesys_lock);
   struct file *file = to_file (fd);
   if (!file)
     return 0;
   file_seek (file, position);
-  lock_release (&filesys_lock);
+  //lock_release (&filesys_lock);
   return 0; 
 }
 
@@ -335,19 +335,19 @@ static int sys_tell_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
       return 0;
 
-  lock_acquire (&filesys_lock);
+  //lock_acquire (&filesys_lock);
   struct file *file = to_file (fd);
   if (!file)
     return 0;
   file_tell (file);
-  lock_release (&filesys_lock);
+  //lock_release (&filesys_lock);
   return 0;
 }
 
 /* Close the file and remove it from the list of threads that opens the file */
 static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
 { 
-  lock_acquire (&filesys_lock);
+  //lock_acquire (&filesys_lock);
   struct file_descriptor * file_descriptor = to_file_descriptor(fd);
   if (!file_descriptor)
     return 0;
@@ -358,7 +358,7 @@ static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   free(file_descriptor);
   // thread exit -> need to free all file descriptors
   // and child state
-  lock_release (&filesys_lock);
+  //lock_release (&filesys_lock);
 
   return 0;
 }
