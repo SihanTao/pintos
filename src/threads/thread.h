@@ -110,6 +110,7 @@ struct thread
 
   int fd_incrementor;
   struct list file_descriptors;
+  struct file * exec_file;
 
 #endif
 
