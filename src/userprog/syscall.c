@@ -90,16 +90,20 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  
+  // printf("syscall_handler called! \n");
   void * stack_ptr = f->esp;
   check_safe_memory_access(stack_ptr);
+  // hex_dump((uintptr_t)stack_ptr, stack_ptr, PHYS_BASE - stack_ptr, 1);
+
 
   int sys_argv[] = {0, 0, 0}; // must initialize to 0 !!!
   int syscall_number = *(int32_t*) stack_ptr;
+  // printf("syscall_handler number %d! \n", syscall_number);
   for (int i = 1; i < argc_syscall[syscall_number] + 1; i++)
-    check_safe_memory_access(stack_ptr + i);
+    check_safe_memory_access((int *) stack_ptr + i);
 
   resolve_syscall_stack (argc_syscall[syscall_number], stack_ptr, sys_argv);
+  // printf("here\n");
   f->eax = syscall_funcs[syscall_number](sys_argv[0], sys_argv[1], sys_argv[2]);
 }
 
@@ -109,11 +113,17 @@ syscall_handler (struct intr_frame *f UNUSED)
  */
 void* check_safe_memory_access(void* vaddr)
 {
+  // printf("checking address %p \n", vaddr);
+  // printf("at vaddr %d \n", * (int*) vaddr);
+
   struct thread * cur = thread_current();
+
 
   // TODO : ASK GTA is null ptr valid ?
   if (!is_user_vaddr(vaddr) || vaddr == NULL) {
-    thread_exit();
+        // printf("check safe access called! \n");
+
+    sys_exit_handler(-1, NULL, NULL);
   }
 
   void * kaddr = pagedir_get_page(cur->pagedir, vaddr);
@@ -190,7 +200,15 @@ static int sys_wait_handler ( int pid, int arg1 UNUSED, int arg2 UNUSED) {
 /* Check if the file has a valid virtual address and call filesys_create to create the file.*/
 static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
 { 
+
+  // printf("inside create! \n");
   check_safe_memory_access((void *) file_name);
+  for (int i = 0; i < MAX_ARGV; i++){
+    check_safe_memory_access(file_name + i);
+    if (((char *)file_name)[i] != '\0')
+      break;
+  }
+
 
   lock_acquire(&filesys_lock);
   bool output = filesys_create((const char *) file_name, (off_t) size);
