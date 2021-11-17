@@ -173,10 +173,10 @@ int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
   // might be concurrency problem
 
   struct process_child_state *state = thread_current ()->state;
-  // lock_acquire(&state->lock);
+  lock_acquire(&state->lock);
   state->exited = true;
   state->exit_status = exit_status;
-  // lock_release(&state->lock);
+  lock_release(&state->lock);
   
 
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);

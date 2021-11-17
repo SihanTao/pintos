@@ -55,6 +55,23 @@ static struct parse_arg_aux
   char token_copy_storage[MAX_ARGV + 1];
 };
 
+static struct process_child_state * init_child_state(void)
+{
+  struct process_child_state *child_state = malloc(sizeof(struct process_child_state));
+  if (!child_state)
+    return NULL;
+
+  child_state->pid = thread_current () -> tid;
+  child_state->parent_exited = false;
+  child_state->exited = false;
+  child_state->exit_status = 0;
+  sema_init(&child_state->wait_sema, 0);
+  lock_init(&child_state->lock);
+
+  return child_state;
+}
+
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -62,17 +79,18 @@ static struct parse_arg_aux
 tid_t
 process_execute(const char *file_name)
 {
+  struct process_child_state *child_state = init_child_state();
+  if (!child_state)
+    return TID_ERROR;
+
   struct start_process_args *process_args = palloc_get_page (0);
   tid_t tid;
-  struct process_child_state *child_state = malloc(sizeof(struct process_child_state));
 
   if (process_args == NULL)
     return TID_ERROR;
 
   sema_init (&process_args->load_status.done, 0);
-  sema_init (&child_state->wait_sema, 0);
   strlcpy (process_args->thread_name, file_name, MAX_FILENAME_LEN + 1);
-   // not sure 14 or 15 
   process_args->thread_name[MAX_FILENAME_LEN] = '\0';
   char * save_ptr;
   strtok_r (process_args->thread_name, " ", &save_ptr);
@@ -167,20 +185,15 @@ process_wait (tid_t child_tid)
     return -1;
   }
 
-
   /* Wait until child process_return */
-  // TODO: Implement using semaphore
   // printf("sema down called\n");
   sema_down (&child_state->wait_sema);
   // printf("sema down returned\n");
 
-  // while (child_state->exited == false) {
-  //   printf("process_wait_loop\n");
-  // }
-
+  lock_acquire(&child_state->lock);
   int exit_status = child_state->exit_status;
+  lock_release(&child_state->lock);
 
-  
   return exit_status;
 }
 
@@ -211,12 +224,11 @@ process_exit (void)
 
   sema_up (&state->wait_sema);
 
-  // lock_acquire(&state->lock);
+  lock_acquire(&state->lock);
   if (state->parent_exited) {
-    // lock_release(&state->lock);
     free (cur->state);
   }
-  // lock_release(&state->lock);
+  lock_release(&state->lock);
 
 
   lock_acquire(&filesys_lock);
@@ -224,10 +236,6 @@ process_exit (void)
     file_allow_write(cur->exec_file);
   file_close(cur->exec_file);
   lock_release(&filesys_lock);
-
-
-
-
 
   free_file_descriptors(cur);
   free_list_of_children(cur);
@@ -648,11 +656,13 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
+// find the pid of exiting child thread and return its state struct
+// if not found return NULL
+// remove from list
 static struct process_child_state *
 pids_find_and_remove (struct list *l, pid_t pid) {
   if (list_empty (l)){
     return NULL;
-
   }
   
   for (struct list_elem *cur = list_begin (l); cur != list_end (l); cur = list_next (cur)) {
@@ -686,9 +696,12 @@ free_list_of_children (struct thread *t)
     struct list_elem *e = list_pop_front (&t->list_of_children);
     struct process_child_state *state = list_entry (e, struct process_child_state, elem);
 
+    // reading and writing state, thus locked
+    lock_acquire(&state->lock);
     state->parent_exited = true;
     if (state->exited) {
       free (state);
     };
+    lock_release(&state->lock);
   }
 }
