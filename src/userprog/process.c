@@ -91,12 +91,15 @@ process_execute(const char *file_name)
   }
   sema_down (&process_args->load_status.done);
 
-  if (process_args->load_status.success)
+  if (process_args->load_status.success) {
     list_push_back (&thread_current ()->list_of_children, &child_state->elem);
+  } else {
+    tid = -1;
+  }
 
   struct list * l = &thread_current() -> list_of_children;
-
-  return process_args->load_status.success ? tid : -1;
+  palloc_free_page(process_args);
+  return tid;
 }
 
 /* A thread function that loads a user process and starts it
@@ -125,7 +128,7 @@ start_process (void *aux)
   args->load_status.success = success;
   sema_up (&args->load_status.done);
 
-  palloc_free_page (args);
+  //palloc_free_page (args);
   /* If load failed, quit. */
   if (!success) 
     thread_exit ();
