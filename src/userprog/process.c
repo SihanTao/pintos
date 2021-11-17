@@ -85,7 +85,6 @@ process_execute(const char *file_name)
 
   sema_init (&process_args->load_status.done, 0);
   strlcpy (process_args->thread_name, file_name, MAX_FILENAME_LEN + 1);
-  // process_args->thread_name[MAX_FILENAME_LEN] = '\0';
   char * save_ptr;
   strtok_r (process_args->thread_name, " ", &save_ptr);
 
@@ -109,8 +108,6 @@ process_execute(const char *file_name)
     tid = -1;
   }
 
-  // Is it unused?
-  struct list * l = &thread_current() -> list_of_children;
   palloc_free_page(process_args);
   return tid;
 }
@@ -129,7 +126,9 @@ start_process (void *aux)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   // TODO: need lock
+  lock_acquire(&filesys_lock);
   args->load_status.success = load (args, &if_.eip, &if_.esp);
+  lock_release(&filesys_lock);
 
   /* if load_status is provided, assign success result into load_status 
      result, and then sema_up relevant semaphore */
