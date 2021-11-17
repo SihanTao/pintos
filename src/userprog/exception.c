@@ -2,6 +2,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include "userprog/gdt.h"
+#include "userprog/syscall.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "userprog/process.h"
@@ -160,6 +161,9 @@ page_fault (struct intr_frame *f)
           not_present ? "not present" : "rights violation",
           write ? "writing" : "reading",
           user ? "user" : "kernel");
-  kill (f);
-}
 
+   if (user)
+      exit_wrapper(-1);
+   
+   kill (f);
+}

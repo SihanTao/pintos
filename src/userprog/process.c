@@ -205,6 +205,9 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  if (cur->exec_file != NULL)
+    file_allow_write(cur->exec_file);
+  file_close(cur->exec_file);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -402,11 +405,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
+  file_deny_write (file);
+  t->exec_file = file;
   success = true;
+
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  if (!success)
+    file_close (file);
   return success;
 }
 

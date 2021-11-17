@@ -17,5 +17,6 @@ struct file_descriptor
 };
 
 void syscall_init (void);
+int exit_wrapper(int status);
 
 #endif /* userprog/syscall.h */
