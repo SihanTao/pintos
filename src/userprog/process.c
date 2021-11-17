@@ -57,7 +57,7 @@ static struct process_child_state * init_child_state(void)
 
   child_state->pid = thread_current () -> tid;
   child_state->parent_exited = false;
-  child_state->exited = false;
+  child_state->child_exited = false;
   child_state->exit_status = 0;
   sema_init(&child_state->wait_sema, 0);
   lock_init(&child_state->lock);
@@ -85,7 +85,6 @@ process_execute(const char *file_name)
 
   sema_init (&process_args->load_status.done, 0);
   strlcpy (process_args->thread_name, file_name, MAX_FILENAME_LEN + 1);
-  // process_args->thread_name[MAX_FILENAME_LEN] = '\0';
   char * save_ptr;
   strtok_r (process_args->thread_name, " ", &save_ptr);
 
@@ -109,8 +108,6 @@ process_execute(const char *file_name)
     tid = -1;
   }
 
-  // Is it unused?
-  struct list * l = &thread_current() -> list_of_children;
   palloc_free_page(process_args);
   return tid;
 }
@@ -129,12 +126,14 @@ start_process (void *aux)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   // TODO: need lock
+  lock_acquire(&filesys_lock);
   args->load_status.success = load (args, &if_.eip, &if_.esp);
+  lock_release(&filesys_lock);
 
   /* if load_status is provided, assign success result into load_status 
      result, and then sema_up relevant semaphore */
   thread_current ()->state = args->state;
-  args->state->exited = false;
+  args->state->child_exited = false;
   args->state->pid = thread_current () ->tid;
   args->state->exit_status = -1;
   sema_up (&args->load_status.done);
@@ -215,7 +214,7 @@ process_exit (void)
 
 
   lock_acquire(&state->lock);
-  state->exited = true;
+  state->child_exited = true;
   if (state->parent_exited) {
     lock_release(&state->lock);
     free (cur->state);
@@ -650,9 +649,8 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
-// find the pid of exiting child thread and return its state struct
-// if not found return NULL
-// remove from list
+/* Find and remove process_child_state from l and return it.
+   if not found, return NULL. */
 static struct process_child_state *
 pids_find_and_remove (struct list *l, pid_t pid) {
   if (list_empty (l)){
@@ -669,6 +667,8 @@ pids_find_and_remove (struct list *l, pid_t pid) {
   return NULL;
 }
 
+/* Remove, close file and free file_descriptor for all file_descriptor
+   in t's file_descriptors */
 static void
 free_file_descriptors (struct thread *t)
 {
@@ -683,6 +683,8 @@ free_file_descriptors (struct thread *t)
   }
 }
 
+/* Remove, update state and if necessary, free process_child_state 
+   for all process_child_state in t's list_of_children */
 static void
 free_list_of_children (struct thread *t)
 {
@@ -693,7 +695,7 @@ free_list_of_children (struct thread *t)
     // reading and writing state, thus locked
     lock_acquire(&state->lock);
     state->parent_exited = true;
-    if (state->exited) {
+    if (state->child_exited) {
       free (state);
     };
     lock_release(&state->lock);

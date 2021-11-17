@@ -91,7 +91,7 @@ kill (struct intr_frame *f)
 
       // struct process_state *state_ref = thread_current ()->process_ref;
       // state_ref->exit_status = -1;
-      // state_ref->exited = true;
+      // state_ref->child_exited = true;
       
       thread_exit (); 
 
