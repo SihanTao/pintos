@@ -25,27 +25,21 @@
 #define word_align(value) ((unsigned int)(value) & 0xfffffffc)
 
 #define MAX_FILENAME_LEN 14
+
+static thread_func start_process NO_RETURN;
+static bool load (void * process_args, void (**eip) (void), void **esp);
+static struct process_child_state *pids_find_and_remove (struct list *l, pid_t pid);
+
+/* Passed as argument into start_process. 
+   This struct is represented in a page, where load_status pointer is
+   copied into first 4 byte, and file_name occupy the remaining of the page*/
 struct start_process_args
 {
   struct process_load_status load_status;
   struct process_child_state * state;
   char thread_name[MAX_FILENAME_LEN + 1];
   char fn_copy[MAX_ARGV + 1];
-};
-
-static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
-static struct process_child_state *pids_find_and_remove (struct list *l, pid_t pid);
-
-/* Passed as argument into start_process. 
-   This struct is represented in a page, where load_status pointer is
-   copied into first 4 byte, and file_name occupy the remaining of the page*/
-
-static struct parse_arg_aux
-{
   char * ptrs_to_argvs[MAX_ARGC];  
-  char whole_command_line_cp[MAX_ARGV + 1];
-  char token_copy_storage[MAX_ARGV + 1];
 };
 
 /* Starts a new thread running a user program loaded from
@@ -69,12 +63,6 @@ process_execute(const char *file_name)
   process_args->thread_name[MAX_FILENAME_LEN] = '\0';
   char * save_ptr;
   strtok_r (process_args->thread_name, " ", &save_ptr);
-  // for (int i = 0; i < MAX_FILENAME_LEN; i++)
-  //   if (process_args->thread_name[i] == ' ')
-  //   {
-  //     process_args->thread_name[i] = '\0';
-  //     break;
-  //   }
 
   process_args->state = child_state;
   strlcpy (process_args->fn_copy, file_name, MAX_ARGV);
@@ -105,7 +93,6 @@ start_process (void *aux)
 {
   struct start_process_args *args = (struct start_process_args *) aux;
   struct intr_frame if_;
-  bool success;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -113,7 +100,7 @@ start_process (void *aux)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   // TODO: need lock
-  success = load (args->fn_copy, &if_.eip, &if_.esp);
+  args->load_status.success = load (args, &if_.eip, &if_.esp);
 
   /* if load_status is provided, assign success result into load_status 
      result, and then sema_up relevant semaphore */
@@ -121,12 +108,11 @@ start_process (void *aux)
   args->state->exited = false;
   args->state->pid = thread_current () ->tid;
   args->state->exit_status = -1;
-  args->load_status.success = success;
   sema_up (&args->load_status.done);
 
   palloc_free_page (args);
   /* If load failed, quit. */
-  if (!success) 
+  if (!args->load_status.success) 
     thread_exit ();
 
   /* Start the user process by simulating a return from an
@@ -152,6 +138,11 @@ start_process (void *aux)
 int
 process_wait (tid_t child_tid) 
 {
+  while (true)
+  {
+    // do nothing
+  }
+  
   struct process_child_state *child_state =
     pids_find_and_remove (&thread_current()->list_of_children, child_tid);
 
@@ -279,7 +270,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp, const char *file_name);
+static bool setup_stack (void **esp, struct start_process_args* start_process_args);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -289,9 +280,11 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
-bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+static bool
+load (void * p_args, void (**eip) (void), void **esp) 
 {
+  struct start_process_args * process_args = p_args;
+  const char *file_name = process_args->fn_copy;
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
@@ -389,7 +382,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, file_name))
+  if (!setup_stack (esp, process_args))
     goto done;
 
   /* Start address. */
@@ -522,7 +515,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, const char *file_name) 
+setup_stack (void **esp, struct start_process_args * process_args) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -534,24 +527,22 @@ setup_stack (void **esp, const char *file_name)
       if (success){
         *esp = PHYS_BASE;
 
-        struct parse_arg_aux * parse_arg_aux = palloc_get_page(0);
-        char * token_copy_pos = parse_arg_aux->token_copy_storage;
-
-        strlcpy(parse_arg_aux->whole_command_line_cp, file_name, MAX_ARGV + 1);
-        memset(parse_arg_aux->token_copy_storage, 0, MAX_ARGV + 1);
+        char token_copy_storage[MAX_ARGV + 1];
+        memset(token_copy_storage, 0, MAX_ARGV + 1);
         // pointer to current position being copied
-        
+        char * token_copy_pos = token_copy_storage;
+
         /* Count the number of arguments */
         int argc = 0; // Number of arguments
         char *token, *save_ptr;
         int len;
-        token = strtok_r (parse_arg_aux->whole_command_line_cp, " ", &save_ptr);
+        token = strtok_r (process_args->fn_copy, " ", &save_ptr);
         for (; token != NULL;
             token = strtok_r (NULL, " ", &save_ptr))
         {
           len = strlen(token);
           strlcpy(token_copy_pos, token, len + 1);
-          parse_arg_aux->ptrs_to_argvs[argc++] = token_copy_pos;
+          process_args->ptrs_to_argvs[argc++] = token_copy_pos;
           token_copy_pos += len + 2;
         }
 
@@ -560,8 +551,8 @@ setup_stack (void **esp, const char *file_name)
         // Push the arguments onto the stack in reverse order
         for (int i = argc - 1; i >= 0; i--)
         {
-          size_t token_length = strlen(parse_arg_aux->ptrs_to_argvs[i]);
-          push_stack_size(parse_arg_aux->ptrs_to_argvs[i], token_length + 1);
+          size_t token_length = strlen(process_args->ptrs_to_argvs[i]);
+          push_stack_size(process_args->ptrs_to_argvs[i], token_length + 1);
           arg_addr[i] = *esp;
         }
 
@@ -587,7 +578,7 @@ setup_stack (void **esp, const char *file_name)
       else
         palloc_free_page (kpage);
     }
-  //hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
+  // hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
   return success;
 }
 
