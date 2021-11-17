@@ -26,6 +26,7 @@ struct process_child_state {
   pid_t pid;
   int exit_status;
   struct list_elem elem;
+  struct semaphore wait_sema;
 };
 
 tid_t process_execute (const char *file_name);

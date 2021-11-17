@@ -173,7 +173,7 @@ int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
   state->exited = true;
 
   state->exit_status = exit_status;
-  printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
+  sema_up (&state->wait_sema);
 
   thread_exit ();
 

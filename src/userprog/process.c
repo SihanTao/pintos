@@ -64,6 +64,7 @@ process_execute(const char *file_name)
     return TID_ERROR;
 
   sema_init (&process_args->load_status.done, 0);
+  sema_init (&child_state->wait_sema, 0);
   strlcpy (process_args->thread_name, file_name, MAX_FILENAME_LEN + 1);
    // not sure 14 or 15 
   process_args->thread_name[MAX_FILENAME_LEN] = '\0';
@@ -164,10 +165,13 @@ process_wait (tid_t child_tid)
 
   /* Wait until child process_return */
   // TODO: Implement using semaphore
+  // printf("sema down called\n");
+  sema_down (&child_state->wait_sema);
+  // printf("sema down returned\n");
 
-  while (child_state->exited == false) {
-    // printf("process_wait_loop\n");
-  }
+  // while (child_state->exited == false) {
+  //   printf("process_wait_loop\n");
+  // }
 
   int exit_status = child_state->exit_status;
 

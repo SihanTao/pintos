@@ -433,9 +433,12 @@ thread_exit (void)
   intr_disable ();
   list_remove (&thread_current ()->allelem);
 
+  printf("%s exited", thread_current()->name);
+
 
 
   thread_current ()->status = THREAD_DYING;
+
   schedule ();
   NOT_REACHED ();
 }
@@ -644,10 +647,7 @@ init_thread (struct thread *t, const char *name, int priority)
 {
   enum intr_level old_level;
 
-#ifdef USERPROG
-  t->fd_incrementor = 3; // the first value is 3
-                         // 0, 1, 2 for stdin stdout stderr
-#endif // USERPROG
+
 
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
@@ -662,7 +662,6 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init (&t->list_of_locks);
   t->cached_priority = priority;
 
-  list_init (&t->list_of_children);
 
   if (thread_mlfqs)
     {
@@ -672,6 +671,12 @@ init_thread (struct thread *t, const char *name, int priority)
       t->recent_cpu = is_initial ? 0 : curr->recent_cpu;
       t->priority = mlfqs_calc_priority (t);
     }
+// #ifdef USERPROG
+  t->fd_incrementor = 3;
+  list_init (&t->list_of_children);
+  list_init(&t->file_descriptors);
+// #endif 
+
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
