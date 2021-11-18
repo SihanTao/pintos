@@ -15,6 +15,7 @@
 #include "filesys/file.h"
 
 static void check_ranged_memory (void * start, size_t length, size_t size_of_type);
+static void check_string_memory (const char * start);
 
 static int sys_halt_handler (int, int, int);
 static int sys_exit_handler ( int, int, int);
@@ -110,12 +111,12 @@ void* check_safe_memory_access(void* vaddr)
   struct thread * cur = thread_current();
 
   if (!is_user_vaddr(vaddr) || vaddr == NULL) 
-    sys_exit_handler(-1, 0, 0);
+    exit_wrapper(-1);
 
   void * kaddr = pagedir_get_page(cur->pagedir, vaddr);
 
   if (kaddr == NULL)
-    sys_exit_handler(-1, 0, 0);
+    exit_wrapper(-1);
 
   return kaddr;
   
@@ -136,11 +137,11 @@ static int sys_write_handler ( int fd, int buffer, int size)
   }
 
   if (fd == STDIN_FILENO)
-    sys_exit_handler(-1, -1, -1);
+    exit_wrapper(-1);
 
   struct file * file = to_file(fd);
   if (file == NULL)
-    sys_exit_handler(-1, -1, -1);
+    exit_wrapper(-1);
 
   lock_acquire(&filesys_lock);
   int ret = file_write(file, (const void *) buffer, (off_t) size);
@@ -152,33 +153,24 @@ static int sys_write_handler ( int fd, int buffer, int size)
 static int sys_halt_handler ( int arg0 UNUSED, int arg1 UNUSED, int arg2 UNUSED)
 {
   shutdown_power_off ();
-  // TODO : NOT_REACHED ();
-  return 0;
+  NOT_REACHED ();
 }
 
 int sys_exit_handler ( int exit_status, int arg1 UNUSED, int arg2 UNUSED)
 {
-  // TODO : put this into process exit
   struct process_child_state *state = thread_current ()->state;
   lock_acquire(&state->lock);
   state->exit_status = exit_status;
   lock_release(&state->lock);
-  
+
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
-
   thread_exit ();
-
-  // TODO : NOT_REACHED ();
-  return 0;
+  NOT_REACHED ();
 }
 
 static int sys_exec_handler ( int cmd_line, int arg1 UNUSED, int arg2 UNUSED) 
 {
-  for (int i = 0; i < MAX_ARGV; i++){
-    check_safe_memory_access((char *)cmd_line + i);
-    if (((char *)cmd_line)[i] != '\0')
-      break;
-  }
+  check_string_memory((const char *) cmd_line);
 
   return process_execute ((char *) cmd_line);
 }
@@ -191,12 +183,7 @@ static int sys_wait_handler ( int pid, int arg1 UNUSED, int arg2 UNUSED) {
 /* Check if the file has a valid virtual address and call filesys_create to create the file.*/
 static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
 { 
-  for (int i = 0; i < MAX_ARGV; i++){
-    check_safe_memory_access((char *)file_name + i);
-    if (((char *)file_name)[i] != '\0')
-      break;
-  }
-
+  check_string_memory((const char *) file_name);
 
   lock_acquire(&filesys_lock);
   bool output = filesys_create((const char *) file_name, (off_t) size);
@@ -208,11 +195,7 @@ static int sys_create_handler ( int file_name, int size, int arg2 UNUSED)
 /* Check if the file has a valid virtual address and call filesys_remove to remove */
 static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
 {
-  for (int i = 0; i < MAX_ARGV; i++){
-    check_safe_memory_access((char *)file_name + i);
-    if (((char *)file_name)[i] != '\0')
-      break;
-  }
+  check_string_memory((const char *) file_name);
 
   lock_acquire(&filesys_lock);
   bool output = filesys_remove((const char *) file_name);
@@ -225,20 +208,17 @@ static int sys_remove_handler ( int file_name, int arg1 UNUSED, int arg2 UNUSED)
   of the current thread */
 int sys_open_handler (int file_name, int arg1 UNUSED, int arg2 UNUSED)
 { 
-  for (int i = 0; i < MAX_ARGV; i++){
-    check_safe_memory_access((char *)file_name + i);
-    if (((char *)file_name)[i] != '\0')
-      break;
-  }
+  check_string_memory((const char *) file_name);
   
   struct file_descriptor * file_descriptor = 
                     malloc(sizeof (struct file_descriptor)); 
   if (!file_descriptor)
-    sys_exit_handler(-1, -1, -1);
+    exit_wrapper(-1);
 
   lock_acquire(&filesys_lock);
   struct file * file = filesys_open((const char *) file_name);
   lock_release(&filesys_lock);
+
   if (!file) {
     free (file_descriptor);
     return -1;
@@ -260,9 +240,8 @@ static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   // only one thread can access to its file descriptor list, thus
   // doesn't need to be protected by locks
   struct file * file = to_file(fd);
-  if(file== NULL) {
+  if(file== NULL)
     return -1;
-  }
 
   lock_acquire (&filesys_lock);
   int ret = file_length(file);
@@ -358,6 +337,8 @@ static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   return file_descriptor->file;
 }
 
+// since only one thread can access to its own file descriptor list
+// thus doesn't need to be protected by locks
 inline struct file_descriptor * to_file_descriptor(int fd)
 {
   struct thread * cur = thread_current();
@@ -383,29 +364,48 @@ int exit_wrapper(int status)
   NOT_REACHED ();
 }
 
+void check_string_memory (const char * start)
+{
+  check_safe_memory_access(start);
+  // printf("start checked %p\n", start);
 
+  void * check_next = pg_round_up(start);
+  // printf("check next is %p\n", check_next);
 
+  for (size_t i = 0; ; i++)
+  {
+    if (check_next == start + i) {
+      check_safe_memory_access(check_next);
+      check_next += PGSIZE;
+    }
+    if (start[i] == '\0')
+      break;
+  }
+}
+
+// since only one thread can access to its own file descriptor list
+// thus doesn't need to be protected by locks
 void check_ranged_memory (void * start, size_t length, size_t size_of_type) 
 {
+  check_safe_memory_access(start);
+
   // void * + offset is undefined behaviour!!! 
   // (despite void * work as char * in gcc)
   // thus void * is casted to char * 
   void * end = (char *) start + (length * size_of_type);
-  void * rounded_up_end = pg_round_up(end);
-  for (
-    void * rounded_up_cur = pg_round_up(start);
-    rounded_up_cur < rounded_up_end;
-    rounded_up_cur += PGSIZE
-  ) 
+  void * rounded_down_end = pg_round_up(end);
+  for ( void * cur = pg_round_up(start);
+        cur != rounded_down_end;
+        cur += PGSIZE ) 
   {
-    check_safe_memory_access(rounded_up_cur);
+    check_safe_memory_access(cur);
   }
   // if rouned_up_end == rounded_up_start
   // end and start are in the same page
   // it is sufficient to check this page is valid
   // thus only need to check the end pointer is valid
 
-  // else check every page this chunck of memory going through
+  // else check every page this chunk of memory going through
   // haven't checked the end page
   check_safe_memory_access(end);
 }

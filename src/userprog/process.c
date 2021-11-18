@@ -142,6 +142,7 @@ start_process (void *aux)
   /* If load failed, quit. */
   if (!args->load_status.success) 
     thread_exit ();
+  // TODO : Hey, Jonathan, do we need to call exit_wrapper or thread exit?
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -211,6 +212,7 @@ process_exit (void)
       pagedir_destroy (pd);
     }
   struct process_child_state* state =  cur->state;
+  
 
 
   lock_acquire(&state->lock);
