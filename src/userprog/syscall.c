@@ -14,7 +14,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 
-
+static void check_ranged_memory (void * start, size_t length, size_t size_of_type);
 
 static int sys_halt_handler (int, int, int);
 static int sys_exit_handler ( int, int, int);
@@ -73,10 +73,11 @@ static int argc_syscall[] =
   };
 
 /* Add all the arguments from stack to output buffer */
-static void resolve_syscall_stack (int argc, void * stack_pointer, int * output)
+static void resolve_syscall_stack (int argc, int * stack_pointer, int * output)
 {
   for (int i = 0; i < argc; i++){
-    output[i] = ((int *) stack_pointer)[i + 1];
+    check_safe_memory_access(stack_pointer + i + 1);
+    output[i] = stack_pointer[i + 1];
   }
 }
 
@@ -100,11 +101,8 @@ syscall_handler (struct intr_frame *f UNUSED)
   int sys_argv[] = {0, 0, 0}; // must initialize to 0 !!!
   int syscall_number = *(int32_t*) stack_ptr;
   // printf("syscall_handler number %d! \n", syscall_number);
-  for (int i = 1; i < argc_syscall[syscall_number] + 1; i++)
-    check_safe_memory_access((int *) stack_ptr + i);
 
   resolve_syscall_stack (argc_syscall[syscall_number], stack_ptr, sys_argv);
-  // printf("here\n");
   f->eax = syscall_funcs[syscall_number](sys_argv[0], sys_argv[1], sys_argv[2]);
 }
 
@@ -143,10 +141,11 @@ void* check_safe_memory_access(void* vaddr)
 static int sys_write_handler ( int fd, int buffer, int size)
 {
   // check_safe_memory_access((void *) buffer);
-  for (int i = 0; i < size; i++){
-    check_safe_memory_access((char *) buffer + i);
-    // putchar(((char *) buffer)[i]);
-  }
+  check_ranged_memory((char *) buffer, size, sizeof(char));
+  // for (int i = 0; i < size; i++){
+  //   check_safe_memory_access((char *) buffer + i);
+  //   // putchar(((char *) buffer)[i]);
+  // }
 
   if (fd == STDOUT_FILENO)
   {
@@ -384,7 +383,6 @@ static int sys_close_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   return 0;
 }
 
-// pre : wrapped by file_system locks!
 // find file according to fd in current thread
 // if fd not exist, return NULL
  struct file * to_file(int fd)
@@ -421,4 +419,31 @@ int exit_wrapper(int status)
 {
   sys_exit_handler(status, 0, 0);
   NOT_REACHED ();
+}
+
+
+
+void check_ranged_memory (void * start, size_t length, size_t size_of_type) 
+{
+  // void * + offset is undefined behaviour!!! 
+  // (despite void * work as char * in gcc)
+  // thus void * is casted to char * 
+  void * end = (char *) start + (length * size_of_type);
+  void * rounded_up_end = pg_round_up(end);
+  for (
+    void * rounded_up_cur = pg_round_up(start);
+    rounded_up_cur < rounded_up_end;
+    rounded_up_cur += PGSIZE
+  ) 
+  {
+    check_safe_memory_access(rounded_up_cur);
+  }
+  // if rouned_up_end == rounded_up_start
+  // end and start are in the same page
+  // it is sufficient to check this page is valid
+  // thus only need to check the end pointer is valid
+
+  // else check every page this chunck of memory going through
+  // haven't checked the end page
+  check_safe_memory_access(end);
 }
