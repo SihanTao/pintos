@@ -89,11 +89,8 @@ kill (struct intr_frame *f)
               thread_name (), f->vec_no, intr_name (f->vec_no));
       intr_dump_frame (f);
 
-      // struct process_state *state_ref = thread_current ()->process_ref;
-      // state_ref->exit_status = -1;
-      // state_ref->child_exited = true;
-      
-      thread_exit (); 
+      exit_wrapper(-1);
+      NOT_REACHED();
 
     case SEL_KCSEG:
       /* Kernel's code segment, which indicates a kernel bug.
@@ -161,9 +158,6 @@ page_fault (struct intr_frame *f)
           not_present ? "not present" : "rights violation",
           write ? "writing" : "reading",
           user ? "user" : "kernel");
-
-   if (user)
-      exit_wrapper(-1);
    
    kill (f);
 }

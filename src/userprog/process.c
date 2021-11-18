@@ -667,9 +667,8 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
-// find the pid of exiting child thread and return its state struct
-// if not found return NULL
-// remove from list
+/* Find and remove process_child_state from l and return it.
+   if not found, return NULL. */
 static struct process_child_state *
 pids_find_and_remove (struct list *l, pid_t pid) {
   if (list_empty (l)){
@@ -686,6 +685,8 @@ pids_find_and_remove (struct list *l, pid_t pid) {
   return NULL;
 }
 
+/* Remove, close file and free file_descriptor for all file_descriptor
+   in t's file_descriptors */
 static void
 free_file_descriptors (struct thread *t)
 {
@@ -700,6 +701,8 @@ free_file_descriptors (struct thread *t)
   }
 }
 
+/* Remove, update state and if necessary, free process_child_state 
+   for all process_child_state in t's list_of_children */
 static void
 free_list_of_children (struct thread *t)
 {
