@@ -20,10 +20,18 @@
 #include "userprog/syscall.h"
 #include <list.h>
 
-#define push_stack_size(source, size) \
-        do {*esp -= (size);\
-            memcpy(*esp, (source), (size));} while (0)
-#define push_stack(source) push_stack_size(&(source), sizeof (source))
+#define check_valid_push_stack(source, size)  \
+        do {                                  \
+          if (available_space >= size)        \
+          {                                   \
+            *esp -= (size);                   \
+            memcpy(*esp, (source), (size));   \
+          } else {                            \
+            success = false;                  \
+            goto done;                        \
+          }                                   \
+        } while (0)
+#define push_stack(source) check_valid_push_stack(&(source), sizeof (source))
 #define word_align(value) ((unsigned int)(value) & 0xfffffffc)
 
 #define MAX_FILENAME_LEN 14
@@ -576,6 +584,15 @@ setup_stack (void **esp, struct start_process_args * process_args)
       if (success){
         *esp = PHYS_BASE;
 
+        /* A counter that stores the available space
+         * In the check_valid_push_stack and push_stack macro,
+         * we check whether the stack has enough space so that
+         * we can push things onto the stack.
+         * If the space is not enough, set success to false and
+         * return directly
+         */
+        size_t available_space = LOADER_PHYS_BASE;
+
         char token_copy_storage[MAX_ARGV + 1];
         memset(token_copy_storage, 0, MAX_ARGV + 1);
         // pointer to current position being copied
@@ -601,7 +618,7 @@ setup_stack (void **esp, struct start_process_args * process_args)
         for (int i = argc - 1; i >= 0; i--)
         {
           size_t token_length = strlen(process_args->ptrs_to_argvs[i]);
-          push_stack_size(process_args->ptrs_to_argvs[i], token_length + 1);
+          check_valid_push_stack(process_args->ptrs_to_argvs[i], token_length + 1);
           arg_addr[i] = *esp;
         }
 
@@ -619,7 +636,7 @@ setup_stack (void **esp, struct start_process_args * process_args)
         // Push a pointer to the first pointer
         // not using push stack, since ambiguity in type
         const char * previous_esp = (*esp);
-        push_stack_size(&previous_esp, sizeof (char **));
+        check_valid_push_stack(&previous_esp, sizeof (char **));
 
         push_stack(argc);
         push_stack(nullptr); // push a fake return address
@@ -628,7 +645,8 @@ setup_stack (void **esp, struct start_process_args * process_args)
         palloc_free_page (kpage);
     }
   // hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
-  return success;
+  done:
+    return success;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
