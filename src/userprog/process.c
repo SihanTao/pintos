@@ -22,7 +22,7 @@
 
 #define check_valid_push_stack(source, size)  \
         do {                                  \
-          if (available_space >= size)        \
+          if (available_space >= (size))      \
           {                                   \
             available_space -= (size);        \
             *esp -= (size);                   \
@@ -38,7 +38,7 @@
 #define MAX_FILENAME_LEN 14
 
 static thread_func start_process NO_RETURN;
-static bool load (void * process_args, void (**eip) (void), void **esp);
+static bool load (void * process_args, void (**eip) (voigitd), void **esp);
 static struct process_child_state *pids_find_and_remove (struct list *l, pid_t pid);
 static void
 free_file_descriptors (struct thread *t);
@@ -150,8 +150,7 @@ start_process (void *aux)
   //palloc_free_page (args);
   /* If load failed, quit. */
   if (!args->load_status.success) 
-    thread_exit ();
-  // TODO : Hey, Jonathan, do we need to call exit_wrapper or thread exit?
+    exit_wrapper(-1);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -191,9 +190,9 @@ process_wait (pid_t child_pid)
   // printf("sema down returned\n");
 
   // TODO: don't need lock here
-  lock_acquire(&child_state->lock);
+  // child process is already exitted so that no need to lock acquire
+  // since 
   int exit_status = child_state->exit_status;
-  lock_release(&child_state->lock);
 
   return exit_status;
 }
@@ -223,17 +222,23 @@ process_exit (void)
     }
   struct process_child_state* state =  cur->state;
   
-
-
   lock_acquire(&state->lock);
   state->child_exited = true;
-  if (state->parent_exited) {
-    lock_release(&state->lock);
-    free (cur->state);
-  } else {
-    lock_release(&state->lock);
-  }
+  int parent_exited = state->parent_exited;
+  lock_release(&state->lock);
 
+  // there won't be concurrency issue between when parent and child process
+  // call exit simutaneously because state is only freed when both child and 
+  // parent process exit is setted to true, this can only happen once
+
+  // whatever the sequence parent and child is exiting the parent both of the 
+  // child exit and parent exit is setted to true at the end resource get freed
+
+  // the cache value of parent_exit and child_exit might be invalid
+  // but this is OK, since the thread (child or parent) get the lock later
+  // will always have valid cache, and by then resource get freed
+  if (parent_exited)
+    free (state);
 
   lock_acquire(&filesys_lock);
   if (cur->exec_file != NULL)
@@ -646,7 +651,6 @@ setup_stack (void **esp, struct start_process_args * process_args)
       else
         palloc_free_page (kpage);
     }
-  // hex_dump((uintptr_t)*esp, *esp, PHYS_BASE - *esp, 1);
   done:
     return success;
 }
@@ -696,12 +700,12 @@ free_file_descriptors (struct thread *t)
 {
   while (!list_empty (&t->file_descriptors)) {
     struct list_elem *e = list_pop_front (&t->file_descriptors);
-    struct file_descriptor *desciptor = list_entry (e, struct file_descriptor, elem);
+    struct file_descriptor *descriptor = list_entry (e, struct file_descriptor, elem);
     lock_acquire(&filesys_lock);
-    file_close (desciptor->file);
+    file_close (descriptor->file);
     lock_release(&filesys_lock);
 
-    free (desciptor);
+    free (descriptor);
   }
 }
 
@@ -714,12 +718,13 @@ free_list_of_children (struct thread *t)
     struct list_elem *e = list_pop_front (&t->list_of_children);
     struct process_child_state *state = list_entry (e, struct process_child_state, elem);
 
-    // reading and writing state, thus locked
     lock_acquire(&state->lock);
     state->parent_exited = true;
-    if (state->child_exited) {
-      free (state);
-    };
+    int child_exited = state->child_exited;
     lock_release(&state->lock);
+
+    // reasoning see process_exit 
+    if (child_exited)
+      free (state);
   }
 }

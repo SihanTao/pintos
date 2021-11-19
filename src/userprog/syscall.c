@@ -14,8 +14,6 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 
-static void check_ranged_memory (void * start, size_t length, size_t size_of_type);
-static void check_string_memory (const char * start);
 
 static int sys_halt_handler (int, int, int);
 static int sys_exit_handler ( int, int, int);
@@ -33,7 +31,9 @@ static int sys_close_handler ( int, int, int);
 
 static struct file * to_file(int fd);
 static struct file_descriptor * to_file_descriptor(int fd);
-static void* check_safe_memory_access(void* vaddr);
+static void check_safe_memory_access(const void* vaddr);
+static void check_ranged_memory (const void * start, size_t length, size_t size_of_type);
+static void check_string_memory (const char * start);
 
 
 static void syscall_handler (struct intr_frame *);
@@ -106,7 +106,7 @@ syscall_handler (struct intr_frame *f UNUSED)
  * Check whether the VADDR is safe.
  * Otherwise exit the thread.
  */
-void* check_safe_memory_access(void* vaddr)
+void check_safe_memory_access(const void* vaddr)
 {
   struct thread * cur = thread_current();
 
@@ -116,10 +116,7 @@ void* check_safe_memory_access(void* vaddr)
   void * kaddr = pagedir_get_page(cur->pagedir, vaddr);
 
   if (kaddr == NULL)
-    exit_wrapper(-1);
-
-  return kaddr;
-  
+    exit_wrapper(-1);  
 }
 
 // write to file if file is opened and held by this thread
@@ -367,10 +364,19 @@ int exit_wrapper(int status)
 void check_string_memory (const char * start)
 {
   check_safe_memory_access(start);
-  // printf("start checked %p\n", start);
 
   void * check_next = pg_round_up(start);
-  // printf("check next is %p\n", check_next);
+
+  // this is valid in current stage, because user programs cannot call malloc
+  // memory is allocated by whole pages in user space, which we only check 
+  // the start of each page after the start 
+  //
+  // this is correct since the start of each page the string going through is
+  // valid
+  //
+  // if the end is not at page boundary we doesn't need to check the end 
+  // since the start of the page where the end lies in is checked to be valid
+  // thus the whole page is valid
 
   for (size_t i = 0; ; i++)
   {
@@ -387,7 +393,7 @@ void check_string_memory (const char * start)
 
 // since only one thread can access to its own file descriptor list
 // thus doesn't need to be protected by locks
-void check_ranged_memory (void * start, size_t length, size_t size_of_type) 
+void check_ranged_memory (const void * start, size_t length, size_t size_of_type) 
 {
   check_safe_memory_access(start);
 
