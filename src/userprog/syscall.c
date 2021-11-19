@@ -406,7 +406,11 @@ check_ranged_memory (const void *start, size_t length, size_t size_of_type)
   void *end = (char *)start + (length * size_of_type);
   void *check_until = pg_round_up (end);
   for (void *cur = pg_round_up (start); cur != check_until; cur += PGSIZE)
-    check_safe_memory_access (cur);
+  {
+    if (cur != start)
+      check_safe_memory_access (cur);
+      // to prevent redundant check on start (when start is at a start of a page)
+  }
 
   if (end == pg_round_up (end))
     check_safe_memory_access (end);
