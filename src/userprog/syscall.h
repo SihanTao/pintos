@@ -11,7 +11,7 @@
 
 struct lock filesys_lock;
 
-/* Assign a indicator to each file */
+/* Structure to store the correspondence fd for each file */
 struct file_descriptor
 {
     int fd;                 /* A unique indicator for each use of file */
