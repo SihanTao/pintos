@@ -675,6 +675,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->fd_incrementor = 3;
   list_init (&t->list_of_children);
   list_init(&t->file_descriptors);
+  t->state = NOT_INITIALIZE;
 // #endif 
 
 

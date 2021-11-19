@@ -28,6 +28,7 @@
             *esp -= (size);                   \
             memcpy(*esp, (source), (size));   \
           } else {                            \
+            palloc_free_page (kpage);         \
             success = false;                  \
             goto done;                        \
           }                                   \
@@ -36,28 +37,70 @@
 #define word_align(value) ((unsigned int)(value) & 0xfffffffc)
 
 #define MAX_FILENAME_LEN 14
+#define NOT_INITIALIZE NULL
 
-static thread_func start_process NO_RETURN;
-static bool load (void * process_args, void (**eip) (voigitd), void **esp);
-static struct process_child_state *pids_find_and_remove (struct list *l, pid_t pid);
-static void
-free_file_descriptors (struct thread *t);
+/* A structure to store the state of child process */
 
-static void
-free_list_of_children (struct thread *t);
-
-/* Passed as argument into start_process. 
-   This struct is represented in a page, where load_status pointer is
-   copied into first 4 byte, and file_name occupy the remaining of the page*/
 static struct start_process_args
 {
-  struct process_load_status load_status;
-  struct process_child_state * state;
-  char thread_name[MAX_FILENAME_LEN + 1];
-  char fn_copy[MAX_ARGV + 1];
-  char * ptrs_to_argvs[MAX_ARGC];  
+  struct semaphore child_setup_sema;        // Used by parent process to wait for child to finish loading
+  bool child_start_success;                 // To indicate whether child process has load successfully
+  struct process_child_state * state; // initialized in child process
+  char thread_name[MAX_FILENAME_LEN + 1]; // initialized in parent process
+  void * temp_for_build_stack; // initialized in parent process
+  int argc;
+  size_t len_argv;
 };
 
+
+static thread_func start_process NO_RETURN;
+static bool load (void * process_args, void (**eip) (void), void **esp);
+static struct process_child_state *pids_find_and_remove (struct list *l, pid_t pid);
+static void free_file_descriptors (struct thread *t);
+
+static void free_list_of_children (struct thread *t);
+
+static void free_start_process_args (struct start_process_args * start_process_args);
+static struct start_process_args * init_start_process_args(void);
+
+
+
+
+void free_start_process_args (struct start_process_args * start_process_args)
+{
+  palloc_free_page(start_process_args->temp_for_build_stack);
+  free(start_process_args);
+}
+
+// this is only called in parent process
+// it initialize everything that can be initialized inside the parent process
+// it doesn't initialize child_state
+// child_state is only initialize after everything is correct
+static struct start_process_args * init_start_process_args(void)
+{
+  struct start_process_args * start_process_args = malloc(
+    sizeof(struct start_process_args)
+  );
+  if (!start_process_args)
+    return NULL;
+
+  start_process_args->temp_for_build_stack = palloc_get_page(0);
+  if (!start_process_args->temp_for_build_stack)
+  {
+    free (start_process_args);
+    return NULL;
+  }
+
+  sema_init(&start_process_args->child_setup_sema, 0);
+  start_process_args->child_start_success = false;
+
+  return start_process_args;
+}
+
+// this is only called in child process
+// only initialize process_child_state after everything is successful
+
+// so that only child thread need to free it once an error happen
 static struct process_child_state * init_child_state(void)
 {
   struct process_child_state *child_state = malloc(sizeof(struct process_child_state));
@@ -67,7 +110,7 @@ static struct process_child_state * init_child_state(void)
   child_state->pid = thread_current () -> tid;
   child_state->parent_exited = false;
   child_state->child_exited = false;
-  child_state->exit_status = 0;
+  child_state->exit_status = -1;
   sema_init(&child_state->wait_sema, 0);
   lock_init(&child_state->lock);
 
@@ -82,42 +125,75 @@ static struct process_child_state * init_child_state(void)
 tid_t
 process_execute(const char *file_name)
 {
-  struct process_child_state *child_state = init_child_state();
-  if (!child_state)
-    return TID_ERROR;
-
-  struct start_process_args *process_args = palloc_get_page (0);
   tid_t tid;
+  struct start_process_args *process_args = init_start_process_args();
+  // this stucture is initialized in parent process
+  // and only freed in parent process
+  // you should not see this is freed in anywhere else
 
-  if (process_args == NULL)
+  if (process_args == NULL) 
     return TID_ERROR;
 
-  sema_init (&process_args->load_status.done, 0);
-  strlcpy (process_args->thread_name, file_name, MAX_FILENAME_LEN + 1);
   char * save_ptr;
+  strlcpy (process_args->thread_name, file_name, MAX_FILENAME_LEN + 1);
   strtok_r (process_args->thread_name, " ", &save_ptr);
+  int len_argv = 0;
+  int argc = 1;
+  bool previous_is_space = true;
+  for (int i = 0; ; i++)
+  {
+    if (i == PGSIZE) // the command line is too long
+    { 
+      free_start_process_args(process_args);
+      return TID_ERROR;
+    }
 
-  process_args->state = child_state;
-  strlcpy (process_args->fn_copy, file_name, MAX_ARGV);
+    if (file_name[i] == ' ' && previous_is_space) // ignore start and consecutive spaces
+      continue;
+    
+    if (file_name[i] == '\0')
+    {
+      ((char *)process_args->temp_for_build_stack)[len_argv] = '\0';
+      len_argv++;
+      break;
+    }
+
+    if (file_name[i] == ' ' && !previous_is_space)
+    {
+      previous_is_space = true;
+      ((char *)process_args->temp_for_build_stack)[len_argv] = '\0';
+      argc++;
+    }
+    else
+    {
+      previous_is_space = false;
+      ((char *)process_args->temp_for_build_stack)[len_argv] = file_name[i];
+    }
+    len_argv++;
+  }
+  process_args->len_argv = len_argv;
+  process_args->argc = argc;
   
-  /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (process_args->thread_name, PRI_DEFAULT, start_process, process_args);
-
-  // PROBLEM: fn_copy and args may not be valid after this func return
-  if (tid == TID_ERROR) {
-    free (child_state);
-    palloc_free_page (process_args); 
-  }
-  sema_down (&process_args->load_status.done);
-
-  if (process_args->load_status.success) {
-    list_push_back (&thread_current ()->list_of_children, &child_state->elem);
-  } else {
-    // Why not just return TID_ERROR
-    tid = -1;
+  // child process is not created at all
+  // there is no thread call sema_up, thus return earlier
+  if (tid == TID_ERROR) 
+  {
+    free_start_process_args (process_args); 
+    return TID_ERROR;
   }
 
-  palloc_free_page(process_args);
+  sema_down (&process_args->child_setup_sema);
+
+  if (process_args->child_start_success) 
+    list_push_back (&thread_current ()->list_of_children, &process_args->state->elem);
+  else 
+    tid = TID_ERROR;
+  // child process fails to load executable or if it fails to allocate memory
+  // for child state 
+  // child process should free all resources it creates
+    
+  free_start_process_args(process_args);
   return tid;
 }
 
@@ -126,7 +202,7 @@ process_execute(const char *file_name)
 static void
 start_process (void *aux)
 {
-  struct start_process_args *args = (struct start_process_args *) aux;
+  struct start_process_args *start_process_args = aux;
   struct intr_frame if_;
 
   /* Initialize interrupt frame and load executable. */
@@ -134,23 +210,38 @@ start_process (void *aux)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  // TODO: need lock
+
   lock_acquire(&filesys_lock);
-  args->load_status.success = load (args, &if_.eip, &if_.esp);
+  bool success = load (start_process_args, &if_.eip, &if_.esp);
   lock_release(&filesys_lock);
 
-  /* if load_status is provided, assign success result into load_status 
-     result, and then sema_up relevant semaphore */
-  thread_current ()->state = args->state;
-  args->state->child_exited = false;
-  args->state->pid = thread_current () ->tid;
-  args->state->exit_status = -1;
-  sema_up (&args->load_status.done);
+  if (!success)
+  {
+    start_process_args->child_start_success = false;
+    sema_up (&start_process_args->child_setup_sema);
+    // sema_up to let parent run
+    // no shared memory between parent and child, thus exit directly
+    // do not need to tell parent exit status, since failed to start
+    thread_exit();
+    NOT_REACHED ();
+  }
 
-  //palloc_free_page (args);
-  /* If load failed, quit. */
-  if (!args->load_status.success) 
-    exit_wrapper(-1);
+  start_process_args->state = init_child_state ();
+  if (!start_process_args->state)
+  {
+    start_process_args->child_start_success = false;
+    sema_up (&start_process_args->child_setup_sema);
+    // sema_up to let parent run
+    // no shared memory between parent and child, thus exit directly
+    // do not need to tell parent exit status, since failed to start   
+    thread_exit();
+    NOT_REACHED (); 
+  }
+
+  // we don't need lock here because parent process can't run until sema_up
+  start_process_args->child_start_success = true;
+  thread_current ()->state = start_process_args->state;
+  sema_up (&start_process_args->child_setup_sema);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -185,11 +276,8 @@ process_wait (pid_t child_pid)
   }
 
   /* Wait until child process_return */
-  // printf("sema down called\n");
   sema_down (&child_state->wait_sema);
-  // printf("sema down returned\n");
 
-  // TODO: don't need lock here
   // child process is already exitted so that no need to lock acquire
   // since 
   int exit_status = child_state->exit_status;
@@ -221,6 +309,8 @@ process_exit (void)
       pagedir_destroy (pd);
     }
   struct process_child_state* state =  cur->state;
+  if (state == NOT_INITIALIZE)
+    return;
   
   lock_acquire(&state->lock);
   state->child_exited = true;
@@ -345,14 +435,12 @@ static bool
 load (void * p_args, void (**eip) (void), void **esp) 
 {
   struct start_process_args * process_args = p_args;
-  const char *file_name = process_args->fn_copy;
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
   off_t file_ofs;
   bool success = false;
   int i;
-  char fn_copy[strlen(file_name) + 1];
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -362,12 +450,10 @@ load (void * p_args, void (**eip) (void), void **esp)
 
   /* Open executable file. */
   char *save_ptr;
-  strlcpy(fn_copy, file_name, PGSIZE);
-  char *f_name = strtok_r(fn_copy, " ", &save_ptr);
-  file = filesys_open (f_name);
+  file = filesys_open (t->name);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", f_name);
+      printf ("load: %s: open failed\n", t->name);
       goto done; 
     }
 
@@ -590,6 +676,7 @@ setup_stack (void **esp, struct start_process_args * process_args)
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success){
         *esp = PHYS_BASE;
+        size_t available_space = PGSIZE;
 
         /* A counter that stores the available space
          * In the check_valid_push_stack and push_stack macro,
@@ -598,55 +685,53 @@ setup_stack (void **esp, struct start_process_args * process_args)
          * If the space is not enough, set success to false and
          * return directly
          */
-        size_t available_space = PGSIZE;
+        // printf("before push! \n");
+        //  for (int i = 0; i < process_args->len_argv; i ++)
+        // {
+        //   putchar(((char *)process_args->temp_for_build_stack)[i]);
+        //   if (((char *)process_args->temp_for_build_stack)[i] == '\0'){
+        //     putchar(' ');
+        //   }
+        // }
+        // putchar('\n');
 
-        char token_copy_storage[MAX_ARGV + 1];
-        memset(token_copy_storage, 0, MAX_ARGV + 1);
-        // pointer to current position being copied
-        char * token_copy_pos = token_copy_storage;
+        // printf("argc : %d, len_argv : %d \n", process_args->argc, process_args->len_argv);
+        // printf("------ \n");
+        check_valid_push_stack(process_args->temp_for_build_stack, process_args->len_argv);
+        // printf("after push string \n");
 
-        /* Count the number of arguments */
-        int argc = 0; // Number of arguments
-        char *token, *save_ptr;
-        int len;
-        token = strtok_r (process_args->fn_copy, " ", &save_ptr);
-        for (; token != NULL;
-            token = strtok_r (NULL, " ", &save_ptr))
-        {
-          len = strlen(token);
-          strlcpy(token_copy_pos, token, len + 1);
-          process_args->ptrs_to_argvs[argc++] = token_copy_pos;
-          token_copy_pos += len + 2;
-        }
-
-        char * arg_addr[argc];
-        
-        // Push the arguments onto the stack in reverse order
-        for (int i = argc - 1; i >= 0; i--)
-        {
-          size_t token_length = strlen(process_args->ptrs_to_argvs[i]);
-          check_valid_push_stack(process_args->ptrs_to_argvs[i], token_length + 1);
-          arg_addr[i] = *esp;
-        }
 
         static const int nullptr = 0;
+        char * argv_ptr = PHYS_BASE - 2;
 
+        *(((int *) *esp) - 1) = 0;
         *esp = (void*) word_align(*esp);
 
         // Push a null pointer 0
         push_stack(nullptr);
+        // printf("after push nullptr \n");
 
+        char * temp;
         // Push pointers to the arguments in reverse order
-        for (int i = argc - 1; i >= 0; i--)
-          push_stack(arg_addr[i]);
+        for (int i = 0; i != process_args->argc; )
+        {
+          if (*argv_ptr == '\0'){
+            temp = argv_ptr + 1;
+            push_stack(temp);
+            i++;
+          }
+          argv_ptr--;
+        }
+        // printf("after push argv_ptr \n");
                 
         // Push a pointer to the first pointer
         // not using push stack, since ambiguity in type
         const char * previous_esp = (*esp);
         check_valid_push_stack(&previous_esp, sizeof (char **));
 
-        push_stack(argc);
+        push_stack(process_args->argc);
         push_stack(nullptr); // push a fake return address
+
       } 
       else
         palloc_free_page (kpage);

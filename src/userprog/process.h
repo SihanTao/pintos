@@ -15,15 +15,8 @@ typedef tid_t pid_t;
 
 #define MAX_ARGC 128
 #define MAX_ARGV 512 // not sure about length
+#define NOT_INITIALIZE NULL
 
-/* Used in struct start_process_args to store the load status for threads */
-struct process_load_status
-{
-  struct semaphore done;        // Used by parent process to wait for child to finish loading
-  bool success;                 // To indicate whether child process has load successfully
-};
-
-/* A structure to store the state of child process */
 struct process_child_state {
   struct lock lock;             // To prevent race condition between parent process and child process
   bool child_exited;            // To indicate if child process exited 
