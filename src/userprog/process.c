@@ -20,7 +20,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-          // printf("pushing stack ava : %d, size : %d \n", available_space, (size));\
 
 #define check_valid_push_stack(source, size)                                  \
   do                                                                          \
@@ -695,7 +694,6 @@ setup_stack (void **esp, struct start_process_args *process_args)
           
           // we have to have this limit, otherwise it cannot work with the 
           // code already provided
-          // printf("inside setup stack \n");
 
           /* A counter that stores the available space
            * In the check_valid_push_stack and push_stack macro,
@@ -707,7 +705,6 @@ setup_stack (void **esp, struct start_process_args *process_args)
           // push the null separated argv
           check_valid_push_stack (process_args->temp_for_build_stack,
                                   process_args->len_argv);
-          // printf("after push stack \n");
 
           static const int nullptr = 0;
           char *argv_ptr = PHYS_BASE - 2;
@@ -723,7 +720,6 @@ setup_stack (void **esp, struct start_process_args *process_args)
 
           // Push a null pointer 0
           push_stack (nullptr);
-          // printf("after push nullptr \n");
 
           // we have to use this temp due to (argv_ptr + 1) is a right value
           // which doesn't have an address, memcpy cannot work
@@ -748,7 +744,6 @@ setup_stack (void **esp, struct start_process_args *process_args)
           // push the number of arguments
           push_stack (process_args->argc);
           push_stack (nullptr); // push a fake return address
-          // printf("finish push stack! \n");
         }
       else
         palloc_free_page (kpage);
