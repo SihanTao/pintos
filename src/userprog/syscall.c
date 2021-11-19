@@ -367,6 +367,16 @@ void check_string_memory (const char * start)
 
   void * check_next = pg_round_up(start);
 
+  for (size_t i = 0; ; i++)
+  {
+    if (check_next == start + i) {
+      check_safe_memory_access(check_next);
+      check_next += PGSIZE;
+    }
+    if (start[i] == '\0')
+      break;
+  }
+
   // this is valid in current stage, because user programs cannot call malloc
   // memory is allocated by whole pages in user space, which we only check 
   // the start of each page after the start 
@@ -377,16 +387,6 @@ void check_string_memory (const char * start)
   // if the end is not at page boundary we doesn't need to check the end 
   // since the start of the page where the end lies in is checked to be valid
   // thus the whole page is valid
-
-  for (size_t i = 0; ; i++)
-  {
-    if (check_next == start + i) {
-      check_safe_memory_access(check_next);
-      check_next += PGSIZE;
-    }
-    if (start[i] == '\0')
-      break;
-  }
 }
 
 // since only one thread can access to its own file descriptor list
@@ -399,19 +399,25 @@ void check_ranged_memory (const void * start, size_t length, size_t size_of_type
   // (despite void * work as char * in gcc)
   // thus void * is casted to char * 
   void * end = (char *) start + (length * size_of_type);
-  void * rounded_down_end = pg_round_up(end);
+  void * check_until = pg_round_up(end);
   for ( void * cur = pg_round_up(start);
-        cur != rounded_down_end;
+        cur != check_until;
         cur += PGSIZE ) 
-  {
     check_safe_memory_access(cur);
-  }
-  // if rouned_up_end == rounded_up_start
-  // end and start are in the same page
-  // it is sufficient to check this page is valid
-  // thus only need to check the end pointer is valid
 
-  // else check every page this chunk of memory going through
-  // haven't checked the end page
-  check_safe_memory_access(end);
+  if (end == pg_round_up(end))
+    check_safe_memory_access(end);
+ 
+  // if start and end are in the same page 
+  // pg_round_up(start) == pg_round_down(end)
+  // only start get checked which is sufficient
+
+  // if start and end are in two consecutive page
+  // start is checked and pg_round_up(start) is checked
+  // which is sufficient since end lies in pg_round_up(start)
+  // all pages are checked
+
+  // otherwise
+  // start is checked, and all the boundaries are checked
+  // check_until is not checked
 }

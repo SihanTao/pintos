@@ -48,7 +48,7 @@ free_list_of_children (struct thread *t);
 /* Passed as argument into start_process. 
    This struct is represented in a page, where load_status pointer is
    copied into first 4 byte, and file_name occupy the remaining of the page*/
-struct start_process_args
+static struct start_process_args
 {
   struct process_load_status load_status;
   struct process_child_state * state;
