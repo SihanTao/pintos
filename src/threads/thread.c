@@ -4,6 +4,7 @@
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
@@ -13,7 +14,6 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include "threads/malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -435,8 +435,6 @@ thread_exit (void)
 
   // printf("%s exited", thread_current()->name);
 
-
-
   thread_current ()->status = THREAD_DYING;
 
   schedule ();
@@ -594,16 +592,16 @@ idle (void *idle_started_ UNUSED)
 
       /* Re-enable interrupts and wait for the next one.
 
-         The `sti' instruction disables interrupts until the
-         completion of the next instruction, so these two
-         instructions are executed atomically.  This atomicity is
-         important; otherwise, an interrupt could be handled
-         between re-enabling interrupts and waiting for the next
-         one to occur, wasting as much as one clock tick worth of
-         time.
+           The `sti' instruction disables interrupts until the
+           completion of the next instruction, so these two
+           instructions are executed atomically.  This atomicity is
+           important; otherwise, an interrupt could be handled
+           between re-enabling interrupts and waiting for the next
+           one to occur, wasting as much as one clock tick worth of
+           time.
 
-         See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
-         7.11.1 "HLT Instruction". */
+           See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
+           7.11.1 "HLT Instruction". */
       asm volatile("sti; hlt" : : : "memory");
     }
 }
@@ -647,8 +645,6 @@ init_thread (struct thread *t, const char *name, int priority)
 {
   enum intr_level old_level;
 
-
-
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
@@ -662,7 +658,6 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init (&t->list_of_locks);
   t->cached_priority = priority;
 
-
   if (thread_mlfqs)
     {
       bool is_initial = strcmp (name, "main") == 0;
@@ -671,13 +666,12 @@ init_thread (struct thread *t, const char *name, int priority)
       t->recent_cpu = is_initial ? 0 : curr->recent_cpu;
       t->priority = mlfqs_calc_priority (t);
     }
-// #ifdef USERPROG
+  // #ifdef USERPROG
   t->fd_incrementor = 3;
   list_init (&t->list_of_children);
-  list_init(&t->file_descriptors);
+  list_init (&t->file_descriptors);
   t->state = NOT_INITIALIZE;
-// #endif 
-
+  // #endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
