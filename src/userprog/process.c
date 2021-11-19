@@ -70,8 +70,7 @@ static void free_file_descriptors (struct thread *t);
 
 static void free_list_of_children (struct thread *t);
 
-static void
-free_start_process_args (struct start_process_args *start_process_args);
+static void free_start_process_args (struct start_process_args *start_process_args);
 static struct start_process_args *init_start_process_args (void);
 
 void
@@ -714,8 +713,11 @@ setup_stack (void **esp, struct start_process_args *process_args)
           char *argv_ptr = PHYS_BASE - 2;
           // zero is at the end of the stack, skip it, so PHYS_BASE - 2
 
-          // add some 0s to the end of the stack, but do not check esp value
-          // the 0s are for indicating the end of the string
+
+          // a little hack, make sure there are '\0's before the string
+          // despite this might not be needed since we initialize the page to all zero
+          // but this is still better to add the '\0's, because we might change the
+          // palloc flags later
           *(((int *)*esp) - 1) = 0;
           *esp = (void *)word_align (*esp);
 
