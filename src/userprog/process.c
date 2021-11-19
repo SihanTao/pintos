@@ -24,6 +24,7 @@
         do {                                  \
           if (available_space >= (size))      \
           {                                   \
+            available_space -= (size);        \
             *esp -= (size);                   \
             memcpy(*esp, (source), (size));   \
           } else {                            \
@@ -37,7 +38,7 @@
 #define MAX_FILENAME_LEN 14
 
 static thread_func start_process NO_RETURN;
-static bool load (void * process_args, void (**eip) (void), void **esp);
+static bool load (void * process_args, void (**eip) (voigitd), void **esp);
 static struct process_child_state *pids_find_and_remove (struct list *l, pid_t pid);
 static void
 free_file_descriptors (struct thread *t);
@@ -172,13 +173,13 @@ start_process (void *aux)
  * This function will be implemented in task 2.
  * For now, it does nothing. */
 int
-process_wait (tid_t child_tid) 
+process_wait (pid_t child_pid) 
 {  
   struct process_child_state *child_state =
-    pids_find_and_remove (&thread_current()->list_of_children, child_tid);
+    pids_find_and_remove (&thread_current()->list_of_children, child_pid);
 
   /* return -1 immediately when pid does not refer to direct child of 
-     calling process, or porcess that calls wait has already called wait in pid */
+     calling process, or process that calls wait has already called wait in pid */
   if (child_state == NULL){
     return -1;
   }
@@ -188,6 +189,7 @@ process_wait (tid_t child_tid)
   sema_down (&child_state->wait_sema);
   // printf("sema down returned\n");
 
+  // TODO: don't need lock here
   // child process is already exitted so that no need to lock acquire
   // since 
   int exit_status = child_state->exit_status;
@@ -596,7 +598,7 @@ setup_stack (void **esp, struct start_process_args * process_args)
          * If the space is not enough, set success to false and
          * return directly
          */
-        size_t available_space = LOADER_PHYS_BASE;
+        size_t available_space = PGSIZE;
 
         char token_copy_storage[MAX_ARGV + 1];
         memset(token_copy_storage, 0, MAX_ARGV + 1);
