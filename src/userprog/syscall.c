@@ -58,11 +58,9 @@ static int argc_syscall[]
 static void
 check_and_resolve_syscall_stack (int argc, int *stack_pointer, int *output)
 {
+  check_safe_memory_access (stack_pointer + argc);
   for (int i = 0; i < argc; i++)
-    {
-      check_safe_memory_access (stack_pointer + i + 1);
-      output[i] = stack_pointer[i + 1];
-    }
+    output[i] = stack_pointer[i + 1];
 }
 
 void
@@ -281,7 +279,7 @@ sys_seek_handler (int fd, int position, int arg2 UNUSED)
 
   struct file *file = to_file (fd);
   if (!file)
-    return 0; // TODO check the return code!!!
+    return 0; 
 
   lock_acquire (&filesys_lock);
   file_seek (file, position);
@@ -298,7 +296,7 @@ sys_tell_handler (int fd, int arg1 UNUSED, int arg2 UNUSED)
 
   struct file *file = to_file (fd);
   if (!file)
-    return 0; // TODO check the return code!!!
+    return 0; 
 
   lock_acquire (&filesys_lock);
   file_tell (file);
@@ -386,10 +384,10 @@ check_string_memory (const char *start)
   // this is valid in current stage, because user programs cannot call malloc
   // memory is allocated by whole pages in user space, which we only check
   // the start of each page after the start
-  //
+
   // this is correct since the start of each page the string going through is
   // valid
-  //
+ 
   // if the end is not at page boundary we doesn't need to check the end
   // since the start of the page where the end lies in is checked to be valid
   // thus the whole page is valid

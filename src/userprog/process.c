@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+          // printf("pushing stack ava : %d, size : %d \n", available_space, (size));\
+
 #define check_valid_push_stack(source, size)                                  \
   do                                                                          \
     {                                                                         \
@@ -31,12 +33,14 @@
         }                                                                     \
       else                                                                    \
         {                                                                     \
-          palloc_free_page (kpage);                                           \
           success = false;                                                    \
           goto done;                                                          \
         }                                                                     \
     }                                                                         \
   while (0)
+// we don't need to free the kpage, since it is installed in thread pagedir,
+// so that it is freed once we call thread_exit
+
 #define push_stack(source) check_valid_push_stack (&(source), sizeof (source))
 #define word_align(value) ((unsigned int)(value)&0xfffffffc)
 
@@ -155,7 +159,7 @@ process_execute (const char *file_name)
         }
 
       if (file_name[i] == ' '
-          && previous_is_space) // ignore start and consecutive spaces
+          && previous_is_space) // ignore initial and consecutive spaces
         continue;
 
       if (file_name[i] == '\0')
@@ -291,7 +295,6 @@ process_wait (pid_t child_pid)
   sema_down (&child_state->wait_sema);
 
   // child process is already exitted so that no need to lock acquire
-  // since
   int exit_status = child_state->exit_status;
 
   return exit_status;
@@ -687,7 +690,13 @@ setup_stack (void **esp, struct start_process_args *process_args)
       if (success)
         {
           *esp = PHYS_BASE;
-          size_t available_space = PGSIZE;
+          size_t available_space = PGSIZE - 512;
+          // reserve some spaces for other functions push stack
+          // otherwise other functions may easily stack overflow
+          
+          // we have to have this limit, otherwise it cannot work with the 
+          // code already provided
+          // printf("inside setup stack \n");
 
           /* A counter that stores the available space
            * In the check_valid_push_stack and push_stack macro,
@@ -696,25 +705,17 @@ setup_stack (void **esp, struct start_process_args *process_args)
            * If the space is not enough, set success to false and
            * return directly
            */
-          // printf("before push! \n");
-          //  for (int i = 0; i < process_args->len_argv; i ++)
-          // {
-          //   putchar(((char *)process_args->temp_for_build_stack)[i]);
-          //   if (((char *)process_args->temp_for_build_stack)[i] == '\0'){
-          //     putchar(' ');
-          //   }
-          // }
-          // putchar('\n');
-
-          // printf("argc : %d, len_argv : %d \n", process_args->argc,
-          // process_args->len_argv); printf("------ \n");
+          // push the null separated argv
           check_valid_push_stack (process_args->temp_for_build_stack,
                                   process_args->len_argv);
-          // printf("after push string \n");
+          // printf("after push stack \n");
 
           static const int nullptr = 0;
           char *argv_ptr = PHYS_BASE - 2;
+          // zero is at the end of the stack, skip it, so PHYS_BASE - 2
 
+          // add some 0s to the end of the stack, but do not check esp value
+          // the 0s are for indicating the end of the string
           *(((int *)*esp) - 1) = 0;
           *esp = (void *)word_align (*esp);
 
@@ -722,7 +723,9 @@ setup_stack (void **esp, struct start_process_args *process_args)
           push_stack (nullptr);
           // printf("after push nullptr \n");
 
-          char *temp;
+          // we have to use this temp due to (argv_ptr + 1) is a right value
+          // which doesn't have an address, memcpy cannot work
+          char *temp; 
           // Push pointers to the arguments in reverse order
           for (int i = 0; i != process_args->argc;)
             {
@@ -734,15 +737,16 @@ setup_stack (void **esp, struct start_process_args *process_args)
                 }
               argv_ptr--;
             }
-          // printf("after push argv_ptr \n");
 
           // Push a pointer to the first pointer
           // not using push stack, since ambiguity in type
           const char *previous_esp = (*esp);
           check_valid_push_stack (&previous_esp, sizeof (char **));
 
+          // push the number of arguments
           push_stack (process_args->argc);
           push_stack (nullptr); // push a fake return address
+          // printf("finish push stack! \n");
         }
       else
         palloc_free_page (kpage);

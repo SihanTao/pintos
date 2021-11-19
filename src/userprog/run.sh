@@ -9,6 +9,7 @@ pintos -f -q
 #pintos --gdb -- run 'echo hello world !'
 #pintos -p ../../tests/userprog/sc-bad-sp -a sc-bad-sp -- -q
 pintos -p ../../examples/echo -a echo -- -q
+pintos -p ../../examples/halt -a halt -- -q
 pintos -q run 'echo hello world !'
 # pintos --gdb -- run 'multi-oom'
 # pintos --gdb -- run 'sc-bad-sp'

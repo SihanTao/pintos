@@ -13,8 +13,7 @@
 
 typedef tid_t pid_t;
 
-#define MAX_ARGC 128
-#define MAX_ARGV 512 // not sure about length
+
 #define NOT_INITIALIZE NULL
 
 struct process_child_state
