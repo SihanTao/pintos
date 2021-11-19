@@ -249,7 +249,7 @@ static int sys_filesize_handler ( int fd, int arg1 UNUSED, int arg2 UNUSED)
   return ret;
 }
 
-/* Read the file open as fd into buffe given the size bytes 
+/* Read the file open as fd into buffer given the size bytes 
   if read from stdin, read put stdin to buffer
   else find file and read from file
   if file doesn't exist, return -1
@@ -378,8 +378,10 @@ void check_string_memory (const char * start)
       check_safe_memory_access(check_next);
       check_next += PGSIZE;
     }
-    if (start[i] == '\0')
+    if (start[i] == '\0') {
+      check_safe_memory_access(start + i);
       break;
+    }
   }
 }
 

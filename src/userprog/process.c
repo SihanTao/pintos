@@ -24,6 +24,7 @@
         do {                                  \
           if (available_space >= size)        \
           {                                   \
+            available_space -= (size);        \
             *esp -= (size);                   \
             memcpy(*esp, (source), (size));   \
           } else {                            \
@@ -173,13 +174,13 @@ start_process (void *aux)
  * This function will be implemented in task 2.
  * For now, it does nothing. */
 int
-process_wait (tid_t child_tid) 
+process_wait (pid_t child_pid) 
 {  
   struct process_child_state *child_state =
-    pids_find_and_remove (&thread_current()->list_of_children, child_tid);
+    pids_find_and_remove (&thread_current()->list_of_children, child_pid);
 
   /* return -1 immediately when pid does not refer to direct child of 
-     calling process, or porcess that calls wait has already called wait in pid */
+     calling process, or process that calls wait has already called wait in pid */
   if (child_state == NULL){
     return -1;
   }
@@ -189,6 +190,7 @@ process_wait (tid_t child_tid)
   sema_down (&child_state->wait_sema);
   // printf("sema down returned\n");
 
+  // TODO: don't need lock here
   lock_acquire(&child_state->lock);
   int exit_status = child_state->exit_status;
   lock_release(&child_state->lock);
@@ -591,7 +593,7 @@ setup_stack (void **esp, struct start_process_args * process_args)
          * If the space is not enough, set success to false and
          * return directly
          */
-        size_t available_space = LOADER_PHYS_BASE;
+        size_t available_space = PGSIZE;
 
         char token_copy_storage[MAX_ARGV + 1];
         memset(token_copy_storage, 0, MAX_ARGV + 1);
