@@ -16,6 +16,7 @@ typedef tid_t pid_t;
 
 #define NOT_INITIALIZE NULL
 
+/* Struct shared between child and parent to transfer information */
 struct process_child_state
 {
   struct lock lock;   // To prevent race condition between parent process and

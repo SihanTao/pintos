@@ -56,9 +56,9 @@ static struct start_process_args
                             // successfully
   struct process_child_state *state;      // initialized in child process
   char thread_name[MAX_FILENAME_LEN + 1]; // initialized in parent process
-  void *temp_for_build_stack;             // initialized in parent process
-  int argc;
-  size_t len_argv;
+  void *temp_for_build_stack;             // temp page to store the command line   
+  int argc;                               // number of args
+  size_t len_argv;                        // length of command line 
 };
 
 static thread_func start_process NO_RETURN;
